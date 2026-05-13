@@ -27,21 +27,36 @@ export function renderConfig(cols: number, host: TuiHost): string {
       .map((it) => stripAnsi((it as { label: string }).label).length),
   );
 
+  // Each header starts a group that owns every following non-header item up
+  // to the next header. When the cursor lives in a group, the entire group
+  // gets the cyan `│` rail — same visual contract as the Debug page's action
+  // groups. Sections rendered without grouping would be flush-left and the
+  // user couldn't see which section their cursor is in.
+  const groupOfItem: number[] = [];
+  let g = -1;
+  items.forEach((it, idx) => {
+    if (it.kind === "header") g++;
+    groupOfItem[idx] = g;
+  });
+  const curGroup = groupOfItem[cur] ?? -1;
+
   const out: string[] = [];
   let curStart = 0;
   let curEnd = 0;
 
   items.forEach((it, idx) => {
     const isSel = idx === cur;
+    const inSelectedGroup = groupOfItem[idx] === curGroup;
+    const prefix = inSelectedGroup ? `${FG_CYAN}│${RESET} ` : "  ";
     if (isSel) curStart = out.length;
 
     if (it.kind === "header") {
       if (out.length > 0) out.push("");
-      out.push(BOLD + it.label + RESET);
+      out.push(prefix + BOLD + it.label + RESET);
     } else if (it.kind === "status") {
-      for (const line of renderStatus(host)) out.push("  " + line);
+      for (const line of renderStatus(host)) out.push(prefix + line);
     } else if (it.kind === "codex_usage") {
-      for (const line of renderCodexUsage(cols)) out.push("  " + line);
+      for (const line of renderCodexUsage(cols)) out.push(prefix + line);
     } else {
       const marker = isSel ? `${FG_CYAN}›${RESET}` : " ";
       const label = isSel
@@ -52,7 +67,7 @@ export function renderConfig(cols: number, host: TuiHost): string {
       const valW = Math.max(10, Math.floor((cols - 8 - labelW) * 0.45));
       const value = valueColor + truncVisible(it.value, valW) + RESET;
       const hint = it.hint ? `   ${DIM}${it.hint}${RESET}` : "";
-      out.push(`  ${marker} ${label}  ${value}${hint}`);
+      out.push(prefix + `  ${marker} ${label}  ${value}${hint}`);
     }
 
     if (isSel) curEnd = out.length - 1;
