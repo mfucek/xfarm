@@ -5,6 +5,7 @@
   "private": true,
   "scripts": {
     "xfarm": "bun run src/cli.ts",
+    "dev": "bun --watch run src/cli.ts watch",
     "typecheck": "tsc --noEmit"
   },
   "bin": {

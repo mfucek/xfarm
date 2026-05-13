@@ -71,7 +71,11 @@ export class Browser {
 
   async stop(): Promise<void> {
     if (this.context) {
-      await this.context.close();
+      try {
+        await this.context.close();
+      } catch {
+        // Playwright's own SIGTERM handler may have closed it first — harmless.
+      }
       this.context = null;
       this.page = null;
     }

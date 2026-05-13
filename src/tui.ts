@@ -49,6 +49,47 @@ const truncVisible = (s: string, n: number): string => {
   return oneLine.slice(0, Math.max(0, n - 1)) + "…";
 };
 
+const wrapText = (s: string, width: number): string[] => {
+  if (width <= 0) return [s];
+  const lines: string[] = [];
+  for (const para of s.split(/\r?\n/)) {
+    if (para.length === 0) {
+      lines.push("");
+      continue;
+    }
+    const words = para.split(/\s+/).filter((w) => w.length > 0);
+    let cur = "";
+    for (const w of words) {
+      if (cur.length === 0) {
+        cur = w.length > width ? w.slice(0, width) : w;
+        if (w.length > width) {
+          lines.push(cur);
+          cur = w.slice(width);
+          while (cur.length > width) {
+            lines.push(cur.slice(0, width));
+            cur = cur.slice(width);
+          }
+        }
+      } else if (cur.length + 1 + w.length <= width) {
+        cur += " " + w;
+      } else {
+        lines.push(cur);
+        cur = w.length > width ? w.slice(0, width) : w;
+        if (w.length > width) {
+          lines.push(cur);
+          cur = w.slice(width);
+          while (cur.length > width) {
+            lines.push(cur.slice(0, width));
+            cur = cur.slice(width);
+          }
+        }
+      }
+    }
+    if (cur.length > 0) lines.push(cur);
+  }
+  return lines;
+};
+
 const ageStr = (iso: string): string => {
   const secs = Math.max(
     0,
@@ -76,6 +117,7 @@ class TUI {
   private debug: DebugSnapshot = { stats: null, logTail: [], daemonStartedAt: null };
   private busy = false;
   private selected = 0;
+  private detailRow: TweetRow | null = null;
   private inputMode = false;
   private inputBuffer = "";
   private inputPrompt = "";
@@ -121,6 +163,14 @@ class TUI {
     stdin.setEncoding("utf8");
     stdin.on("data", (key: string) => this.onKey(key));
     process.on("exit", () => this.teardownTerminal());
+    // bun --watch sends SIGTERM on file change; make sure we restore the
+    // terminal before dying instead of leaving the user in alt-screen.
+    const onForceExit = (sig: NodeJS.Signals) => {
+      this.teardownTerminal();
+      process.exit(sig === "SIGTERM" ? 0 : 130);
+    };
+    process.on("SIGTERM", onForceExit);
+    process.on("SIGHUP", onForceExit);
   }
 
   private teardownTerminal(): void {
@@ -213,15 +263,35 @@ class TUI {
       return;
     }
 
+    if (this.detailRow) {
+      if (key === "\x03") {
+        this.stopFlag = true;
+        return;
+      }
+      // any key closes the detail view
+      this.detailRow = null;
+      this.draw();
+      return;
+    }
+
     // global keys
     if (key === "q" || key === "\x03") {
       this.stopFlag = true;
       return;
     }
     const PAGES: Page[] = ["candidates", "keywords", "debug"];
-    if (key === "\t") {
+    if (key === "\t" || key === "\x1b[C") {
       const next = (PAGES.indexOf(this.page) + 1) % PAGES.length;
       this.page = PAGES[next] ?? "candidates";
+      this.selected = 0;
+      this.refresh();
+      this.draw();
+      return;
+    }
+    if (key === "\x1b[D") {
+      const idx = PAGES.indexOf(this.page);
+      const prev = (idx - 1 + PAGES.length) % PAGES.length;
+      this.page = PAGES[prev] ?? "candidates";
       this.selected = 0;
       this.refresh();
       this.draw();
@@ -281,6 +351,13 @@ class TUI {
       if (r) {
         spawn("open", [r.url], { stdio: "ignore", detached: true }).unref();
         this.flash(`opened ${r.url}`);
+      }
+    } else if (key === "\r" || key === "\n" || key === " ") {
+      const r = this.candidates[this.selected];
+      if (r) {
+        this.detailRow = r;
+        this.draw();
+        return;
       }
     } else if (key === "s") {
       const r = this.candidates[this.selected];
@@ -427,7 +504,9 @@ class TUI {
     const out: string[] = [HOME, `${ESC}J`]; // home + clear-to-end
     out.push(this.renderHeader(cols));
     out.push("\n\n");
-    if (this.page === "candidates") {
+    if (this.detailRow) {
+      out.push(this.renderDetail(cols, this.detailRow));
+    } else if (this.page === "candidates") {
       out.push(this.renderCandidates(cols));
     } else if (this.page === "keywords") {
       out.push(this.renderKeywords(cols));
@@ -596,23 +675,26 @@ class TUI {
     if (this.inputMode) {
       return DIM + "enter: confirm · esc: cancel" + RESET;
     }
+    if (this.detailRow) {
+      return DIM + "any key: back · o open in browser" + RESET;
+    }
     if (this.page === "candidates") {
       return (
         DIM +
-        "j/k move · o open · s seen · r replied · Tab switch · q quit" +
+        "j/k move · enter/space view · o open · s seen · r replied · Tab/←→ switch · q quit" +
         RESET
       );
     }
     if (this.page === "keywords") {
       return (
         DIM +
-        "j/k move · a add · d delete · Tab switch · q quit" +
+        "j/k move · a add · d delete · Tab/←→ switch · q quit" +
         RESET
       );
     }
     return (
       DIM +
-      "R reload daemon · S stop · B boot · Tab switch · q quit" +
+      "R reload daemon · S stop · B boot · Tab/←→ switch · q quit" +
       RESET
     );
   }
@@ -676,6 +758,38 @@ class TUI {
       const maxLineLen = Math.max(20, cols - 4);
       for (const l of this.debug.logTail) {
         lines.push("  " + truncVisible(l, maxLineLen));
+      }
+    }
+
+    return lines.join("\n");
+  }
+
+  private renderDetail(cols: number, r: TweetRow): string {
+    const width = Math.max(20, Math.min(100, cols - 4));
+    const lines: string[] = [];
+
+    const score = r.llm_score == null ? "—" : r.llm_score.toFixed(1);
+    const velocity = r.velocity == null ? "—" : r.velocity.toFixed(1);
+    const meta =
+      `${FG_CYAN}@${r.author}${RESET}` +
+      `  ${DIM}${ageStr(r.created_at)} ago${RESET}` +
+      `  ${DIM}score${RESET} ${score}` +
+      `  ${DIM}v/min${RESET} ${velocity}` +
+      `  ${DIM}likes${RESET} ${r.likes ?? 0}`;
+    lines.push(meta);
+    lines.push(DIM + r.url + RESET);
+    lines.push("");
+
+    lines.push(BOLD + "text" + RESET);
+    for (const l of wrapText(r.text, width)) {
+      lines.push(l);
+    }
+
+    if (r.llm_angle) {
+      lines.push("");
+      lines.push(BOLD + FG_GREEN + "angle" + RESET);
+      for (const l of wrapText(r.llm_angle, width)) {
+        lines.push(FG_GREEN + l + RESET);
       }
     }
 

@@ -34,11 +34,22 @@ export async function runDaemon(): Promise<void> {
   const ac = new AbortController();
   const { signal } = ac;
 
+  let shuttingDown = false;
   const shutdown = async (sig: string) => {
+    if (shuttingDown) return;
+    shuttingDown = true;
     console.log(`[daemon] ${sig} received — shutting down`);
     ac.abort();
-    await browser.stop();
-    db.close();
+    try {
+      await browser.stop();
+    } catch (e) {
+      console.error("[daemon] browser stop failed:", e);
+    }
+    try {
+      db.close();
+    } catch {
+      /* db may already be closed */
+    }
     clearPid();
     process.exit(0);
   };
