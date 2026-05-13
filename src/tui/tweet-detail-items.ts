@@ -32,6 +32,13 @@ export type TweetDetailItem =
       run: (host: TuiHost) => Promise<void> | void;
     };
 
+/** Rows the cursor should stop on: actionable (action) or
+ * activatable-on-Enter (bullets, which copies to clipboard). Meta, headers,
+ * and plain text are read-only and skipped during j/k navigation. */
+export function isSelectable(it: TweetDetailItem): boolean {
+  return it.kind === "action" || it.kind === "bullets";
+}
+
 export function getTweetDetailItems(
   host: TuiHost,
   r: TweetRow,
@@ -47,7 +54,7 @@ export function getTweetDetailItems(
       `${FG_CYAN}@${r.author}${RESET}` +
         `  ${DIM}${ageStr(r.created_at)} ago${RESET}` +
         `  ${DIM}score${RESET} ${score}` +
-        `  ${DIM}v/min${RESET} ${velocity}` +
+        `  ${DIM}l/min${RESET} ${velocity}` +
         `  ${DIM}likes${RESET} ${r.likes ?? 0}`,
       DIM + r.url + RESET,
     ],

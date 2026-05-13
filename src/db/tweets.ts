@@ -142,7 +142,7 @@ export function fetchActive(db: Database, limit = 50): TweetRow[] {
     .prepare(
       `SELECT * FROM tweets
        WHERE seen_at IS NULL AND passed_gate_at IS NOT NULL
-       ORDER BY llm_score IS NULL, llm_score DESC, discovered_at DESC
+       ORDER BY llm_score IS NULL, llm_score DESC, created_at DESC
        LIMIT ?`,
     )
     .all(limit) as TweetRow[];

@@ -13,8 +13,10 @@ import {
 } from "./ansi.ts";
 import type { TweetRow } from "../types.ts";
 import type { RenderCtx, TuiHost } from "./types.ts";
+import { clampToSelectable } from "./items.ts";
 import {
   getTweetDetailItems,
+  isSelectable,
   renderTweetDetailItem,
 } from "./tweet-detail-items.ts";
 
@@ -40,7 +42,7 @@ export function renderCandidates(cols: number, ctx: RenderCtx): string {
       " " +
       padRight("score", COL_SCORE) +
       " " +
-      padRight("v/min", COL_VEL) +
+      padRight("l/min", COL_VEL) +
       " " +
       padRight("likes", COL_LIKES) +
       " text / angle" +
@@ -147,7 +149,11 @@ export function renderTweetDetail(cols: number, host: TuiHost): string {
   const width = Math.max(20, Math.min(100, cols - 4));
   const items = getTweetDetailItems(host, r, width);
 
-  const cur = Math.max(0, Math.min(host.tweetDetailCursor, items.length - 1));
+  // Snap onto the nearest actionable row so the cursor is never stuck on a
+  // header/meta/text row. Writing back keeps the host cursor in sync so the
+  // next j/k advances from the visible position.
+  const cur = clampToSelectable(items, host.tweetDetailCursor, isSelectable);
+  host.tweetDetailCursor = cur;
 
   const out: string[] = [];
   const opts = { copiedAt: host.tweetDetailCopiedAt };

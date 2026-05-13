@@ -9,8 +9,10 @@ import {
   isUp,
   type ParsedKey,
 } from "./keys.ts";
+import { stepSelectable } from "./items.ts";
 import {
   getTweetDetailItems,
+  isSelectable,
   type TweetDetailItem,
 } from "./tweet-detail-items.ts";
 import type { TuiHost } from "./types.ts";
@@ -44,13 +46,23 @@ export function handleTweetDetailKey(host: TuiHost, key: ParsedKey): void {
   const items = getTweetDetailItems(host, r, width);
 
   if (isDown(key)) {
-    host.tweetDetailCursor = Math.min(host.tweetDetailCursor + 1, items.length - 1);
+    host.tweetDetailCursor = stepSelectable(
+      items,
+      host.tweetDetailCursor,
+      1,
+      isSelectable,
+    );
     host.tweetDetailCopiedAt = null;
     host.draw();
     return;
   }
   if (isUp(key)) {
-    host.tweetDetailCursor = Math.max(0, host.tweetDetailCursor - 1);
+    host.tweetDetailCursor = stepSelectable(
+      items,
+      host.tweetDetailCursor,
+      -1,
+      isSelectable,
+    );
     host.tweetDetailCopiedAt = null;
     host.draw();
     return;

@@ -7,6 +7,7 @@ import {
   startDaemonAction,
   stopDaemonAction,
 } from "./daemon-actions.ts";
+import { stepSelectable } from "./items.ts";
 import {
   isActivate,
   isChar,
@@ -15,6 +16,10 @@ import {
   type ParsedKey,
 } from "./keys.ts";
 import type { DebugAction, DebugItem, TuiHost } from "./types.ts";
+
+/** Sections are read-only signposts; only actions take Enter. */
+export const isDebugItemSelectable = (it: DebugItem): boolean =>
+  it.kind === "action";
 
 export function getDebugItems(host: TuiHost): DebugItem[] {
   return [
@@ -97,12 +102,22 @@ export function handleDebugKey(host: TuiHost, key: ParsedKey): void {
   if (host.busy) return;
   const items = getDebugItems(host);
   if (isDown(key)) {
-    host.debugCursor = Math.min(host.debugCursor + 1, items.length - 1);
+    host.debugCursor = stepSelectable(
+      items,
+      host.debugCursor,
+      1,
+      isDebugItemSelectable,
+    );
     host.draw();
     return;
   }
   if (isUp(key)) {
-    host.debugCursor = Math.max(0, host.debugCursor - 1);
+    host.debugCursor = stepSelectable(
+      items,
+      host.debugCursor,
+      -1,
+      isDebugItemSelectable,
+    );
     host.draw();
     return;
   }
