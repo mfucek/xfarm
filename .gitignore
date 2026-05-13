@@ -1,0 +1,11 @@
+node_modules/
+.xfarm/
+~/
+data.db
+data.db-wal
+data.db-shm
+.DS_Store
+.env
+*.log
+bun.lockb
+b64

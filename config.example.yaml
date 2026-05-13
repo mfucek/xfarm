@@ -1,0 +1,56 @@
+# xfarm config. Copy to ~/.xfarm/config.yaml and edit.
+
+scraper:
+  # Path to a JSON file with your burner X account's cookies.
+  # Required keys: username, auth_token, ct0.
+  burner_cookies_path: ~/.xfarm/cookies.json
+  # Where Playwright keeps its persistent profile (cookies, storage, cache).
+  profile_path: ~/.xfarm/browser-profile
+  user_agent: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
+  max_requests_per_minute: 25
+  jitter_pct: 20
+  headless: true
+
+watchlist:
+  scan_interval_sec: 60
+  # tier 1 = always notify regardless of velocity; tier 2 = normal gate.
+  authors:
+    - {handle: "swyx", tier: 2}
+    - {handle: "simonw", tier: 2}
+    - {handle: "karpathy", tier: 1}
+
+keywords:
+  scan_interval_sec: 300
+  queries:
+    - "knowledge graph"
+    - "RAG eval"
+
+velocity:
+  tracker_interval_sec: 180
+  max_age_hours: 2
+
+gate:
+  min_velocity: 3.0
+  velocity_window_min: 30
+  min_likes_absolute: 50
+
+judge:
+  vertex_project: "your-gcp-project"
+  vertex_location: "us-central1"
+  model: "gemini-2.5-flash"
+  notify_threshold: 7.0
+  prompt_path: ./prompts/judge.md
+  # Optional: path to a service-account JSON key for Vertex.
+  # If set, takes precedence over `gcloud auth application-default login` ADC.
+  # credentials_path: ~/.xfarm/vertex-sa.json
+
+notifier:
+  enabled: true
+  sound: "Glass"
+
+storage:
+  db_path: ~/.xfarm/data.db
+
+logging:
+  level: INFO
+  path: ~/.xfarm/xfarm.log
