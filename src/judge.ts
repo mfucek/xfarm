@@ -1,9 +1,42 @@
-import { readFileSync } from "node:fs";
+import { chmodSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { homedir } from "node:os";
+import { dirname, join } from "node:path";
 import { GoogleGenAI, Type } from "@google/genai";
 import type { Config } from "./config.ts";
 import type { DB } from "./db.ts";
 import { sleep } from "./scraper/rate-limit.ts";
 import type { JudgeResult, TweetRow } from "./types.ts";
+
+/**
+ * Resolve credentials. Priority:
+ *   1. GOOGLE_VERTEX_CREDENTIALS_B64 env var (decoded to a cache file)
+ *   2. cfg.judge.credentials_path (explicit SA key)
+ *   3. ADC (gcloud auth application-default login) — handled by google-auth
+ */
+function resolveCredentialsPath(cfg: Config): string | null {
+  const b64 = process.env.GOOGLE_VERTEX_CREDENTIALS_B64;
+  if (b64 && b64.trim().length > 0) {
+    const cachePath = join(homedir(), ".xfarm", ".cache", "vertex-sa.json");
+    mkdirSync(dirname(cachePath), { recursive: true });
+    const decoded = Buffer.from(b64.replace(/\s+/g, ""), "base64");
+    // sanity-check it's valid JSON before committing to disk
+    try {
+      const parsed = JSON.parse(decoded.toString("utf-8"));
+      if (parsed.type !== "service_account") {
+        throw new Error(`expected type=service_account, got ${parsed.type}`);
+      }
+    } catch (e) {
+      throw new Error(
+        `GOOGLE_VERTEX_CREDENTIALS_B64 decode failed: ${(e as Error).message}`,
+      );
+    }
+    writeFileSync(cachePath, decoded);
+    chmodSync(cachePath, 0o600);
+    return cachePath;
+  }
+  if (cfg.judge.credentials_path) return cfg.judge.credentials_path.toString();
+  return null;
+}
 
 const RESPONSE_SCHEMA = {
   type: Type.OBJECT,
@@ -20,10 +53,9 @@ export class Judge {
   private template: string | null = null;
 
   constructor(private cfg: Config) {
-    // Service-account creds: point google-auth at the SA JSON file before
-    // creating the client. google-auth-library will pick it up from the env.
-    if (cfg.judge.credentials_path) {
-      process.env.GOOGLE_APPLICATION_CREDENTIALS = cfg.judge.credentials_path;
+    const credPath = resolveCredentialsPath(cfg);
+    if (credPath) {
+      process.env.GOOGLE_APPLICATION_CREDENTIALS = credPath;
     }
     this.ai = new GoogleGenAI({
       vertexai: true,

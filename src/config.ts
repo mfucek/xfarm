@@ -50,7 +50,8 @@ const GateSchema = z.object({
 });
 
 const JudgeSchema = z.object({
-  vertex_project: z.string(),
+  // Optional here; can come from GOOGLE_VERTEX_PROJECT_ID env var instead.
+  vertex_project: z.string().optional().default(""),
   vertex_location: z.string().default("us-central1"),
   model: z.string().default("gemini-2.5-flash"),
   notify_threshold: z.number().min(0).max(10).default(7.0),
@@ -95,6 +96,20 @@ export type Config = z.infer<typeof ConfigSchema>;
 
 export const DEFAULT_CONFIG_PATH = expandPath("~/.xfarm/config.yaml");
 
+function applyEnvOverrides(cfg: Config): Config {
+  // .env values (loaded automatically by Bun) override config.yaml.
+  // Keeps secrets and per-environment values out of the YAML.
+  const projectEnv = process.env.GOOGLE_VERTEX_PROJECT_ID;
+  if (projectEnv && projectEnv.trim().length > 0) {
+    cfg.judge.vertex_project = projectEnv.trim();
+  }
+  const locationEnv = process.env.GOOGLE_VERTEX_LOCATION;
+  if (locationEnv && locationEnv.trim().length > 0) {
+    cfg.judge.vertex_location = locationEnv.trim();
+  }
+  return cfg;
+}
+
 export function loadConfig(path?: string): Config {
   const p = path ? expandPath(path) : DEFAULT_CONFIG_PATH;
   let raw: string;
@@ -106,5 +121,13 @@ export function loadConfig(path?: string): Config {
     );
   }
   const parsed = yaml.load(raw);
-  return ConfigSchema.parse(parsed);
+  const validated = ConfigSchema.parse(parsed);
+  const final = applyEnvOverrides(validated);
+  if (!final.judge.vertex_project) {
+    throw new Error(
+      "Vertex project ID is required. Set `judge.vertex_project` in config.yaml " +
+        "or GOOGLE_VERTEX_PROJECT_ID in .env",
+    );
+  }
+  return final;
 }

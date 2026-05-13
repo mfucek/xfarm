@@ -31,6 +31,15 @@ hr
 say "xfarm setup wizard"
 hr
 
+# Load .env if present (bash doesn't auto-load; bun does at runtime).
+if [ -f "$REPO_ROOT/.env" ]; then
+  set -a
+  # shellcheck disable=SC1091
+  . "$REPO_ROOT/.env"
+  set +a
+  say ".env detected (will skip Vertex prompts if it has GOOGLE_VERTEX_* set)"
+fi
+
 # ---- 1. bun ----
 if ! command -v bun >/dev/null 2>&1; then
   say "Installing Bun..."
@@ -81,9 +90,14 @@ else
   say "Creating $CONFIG from template..."
   cp "$REPO_ROOT/config.example.yaml" "$CONFIG"
   hr
-  printf "%sGCP project ID%s for Vertex AI Gemini judge.\n" "$B" "$X"
-  printf "  (Vertex AI API must be enabled on the project.)\n"
-  read -r -p "  GCP project ID: " gcp_project
+  if [ -n "${GOOGLE_VERTEX_PROJECT_ID:-}" ]; then
+    say "Using GOOGLE_VERTEX_PROJECT_ID=$GOOGLE_VERTEX_PROJECT_ID from .env (no prompt needed)."
+    gcp_project="$GOOGLE_VERTEX_PROJECT_ID"
+  else
+    printf "%sGCP project ID%s for Vertex AI Gemini judge.\n" "$B" "$X"
+    printf "  (Vertex AI API must be enabled on the project.)\n"
+    read -r -p "  GCP project ID: " gcp_project
+  fi
   if [ -n "${gcp_project:-}" ]; then
     bun -e "
       import { readFileSync, writeFileSync } from 'fs';
@@ -157,7 +171,10 @@ hr
 say "Vertex AI authentication"
 ADC_FILE="$HOME/.config/gcloud/application_default_credentials.json"
 
-if [ -f "$SA_FILE" ]; then
+if [ -n "${GOOGLE_VERTEX_CREDENTIALS_B64:-}" ]; then
+  say "GOOGLE_VERTEX_CREDENTIALS_B64 found in .env — Vertex auth handled at runtime."
+  HAVE_VERTEX_AUTH=1
+elif [ -f "$SA_FILE" ]; then
   say "Service-account key already at $SA_FILE — using it."
   HAVE_VERTEX_AUTH=1
 else
