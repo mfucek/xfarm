@@ -11,22 +11,23 @@ function likesPerMinute(likes: number, createdAtIso: string): number {
   return likes / ageMin;
 }
 
-function passesGate(
+export function passesGate(
   cfg: Config,
   ageMin: number,
-  velocity: number,
+  velocity: number | null,
   likes: number,
 ): boolean {
   if (
+    velocity != null &&
     ageMin <= cfg.gate.velocity_window_min &&
     velocity >= cfg.gate.min_velocity
   ) {
     return true;
   }
-  if (
-    ageMin <= cfg.gate.velocity_window_min &&
-    likes >= cfg.gate.min_likes_absolute
-  ) {
+  // Absolute-likes branch is age-agnostic: if a tweet already has enough
+  // engagement to be worth judging, surface it even if it was discovered late
+  // (e.g. keyword search returned an older post) or never re-polled.
+  if (likes >= cfg.gate.min_likes_absolute) {
     return true;
   }
   return false;

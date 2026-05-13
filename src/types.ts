@@ -28,6 +28,7 @@ export type TweetRow = {
   llm_score: number | null;
   llm_reason: string | null;
   llm_angle: string | null;
+  llm_pitch: string | null;
   notified_at: string | null;
   seen_at: string | null;
   replied_at: string | null;
@@ -37,6 +38,7 @@ export type JudgeResult = {
   score: number;
   reason: string;
   suggested_angle: string;
+  pitch_bullets: string[];
 };
 
 export type SuggestionVerdict = "add" | "remove" | "change";

@@ -4,6 +4,7 @@ import { scheduleState } from "../schedule.ts";
 import type { Browser } from "./browser.ts";
 import { parseFollowerCount, parseTweetsOnPage } from "./parse.ts";
 import { TokenBucket, jitteredSleep, sleep } from "./rate-limit.ts";
+import { passesGate } from "./velocity-tracker.ts";
 
 const followerCache = new Map<string, number | null>();
 
@@ -12,6 +13,7 @@ export async function scanAuthor(
   db: DB,
   handle: string,
   tier: number,
+  cfg: Config,
   bucket: TokenBucket,
 ): Promise<number> {
   await bucket.acquire();
@@ -48,7 +50,15 @@ export async function scanAuthor(
         });
         if (inserted) {
           newCount++;
-          if (tier === 1) db.markGatePassed(t.id);
+          if (tier === 1) {
+            db.markGatePassed(t.id);
+          } else {
+            const ageMin =
+              (Date.now() - new Date(t.createdAt).getTime()) / 60000;
+            if (passesGate(cfg, ageMin, null, t.likes)) {
+              db.markGatePassed(t.id);
+            }
+          }
         }
       }
     } catch (e) {

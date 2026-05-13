@@ -4,11 +4,13 @@ import { scheduleState } from "../schedule.ts";
 import type { Browser } from "./browser.ts";
 import { parseTweetsOnPage } from "./parse.ts";
 import { TokenBucket, jitteredSleep, sleep } from "./rate-limit.ts";
+import { passesGate } from "./velocity-tracker.ts";
 
 export async function scanKeyword(
   browser: Browser,
   db: DB,
   query: string,
+  cfg: Config,
   bucket: TokenBucket,
 ): Promise<number> {
   await bucket.acquire();
@@ -35,7 +37,16 @@ export async function scanKeyword(
           replies: t.replies,
           retweets: t.retweets,
         });
-        if (inserted) newCount++;
+        if (inserted) {
+          newCount++;
+          // Search often returns tweets that are already older than the
+          // velocity tracker's polling window — they'd never reach passesGate
+          // otherwise. Apply the gate at discovery so they still get judged.
+          const ageMin = (Date.now() - new Date(t.createdAt).getTime()) / 60000;
+          if (passesGate(cfg, ageMin, null, t.likes)) {
+            db.markGatePassed(t.id);
+          }
+        }
       }
     } catch (e) {
       console.error(`[keyword] ${JSON.stringify(query)} scan failed:`, e);

@@ -51,6 +51,17 @@ const truncVisible = (s: string, n: number): string => {
   return oneLine.slice(0, Math.max(0, n - 1)) + "…";
 };
 
+const parsePitchBullets = (raw: string | null): string[] => {
+  if (!raw) return [];
+  try {
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter((b): b is string => typeof b === "string" && b.trim().length > 0);
+  } catch {
+    return [];
+  }
+};
+
 const wrapText = (s: string, width: number): string[] => {
   if (width <= 0) return [s];
   const lines: string[] = [];
@@ -114,12 +125,27 @@ type DebugSnapshot = {
 
 type ActivitySnapshot = ReturnType<DB["recentActivity"]>;
 
+type DebugAction = {
+  kind: "action";
+  label: string;
+  hint?: string;
+  run: () => Promise<void> | void;
+};
+
+type DebugSection = {
+  kind: "section";
+  id: "daemon" | "activity" | "paths" | "scheduling" | "stats" | "recent_log";
+};
+
+type DebugItem = DebugSection | DebugAction;
+
 const ACTIVITY_WINDOW_SEC = 3600;
 const ACTIVITY_BUCKETS = 60;
 
 class TUI {
   private page: Page = "candidates";
   private candidates: TweetRow[] = [];
+  private nonCandidates: TweetRow[] = [];
   private keywords: { query: string; last_scanned_at: string | null }[] = [];
   private suggestions: SuggestionRow[] = [];
   private unchunkedCount = 0;
@@ -135,6 +161,7 @@ class TUI {
   private detailRow: TweetRow | null = null;
   private detailSuggestion: SuggestionRow | null = null;
   private detailTweets: TweetRow[] = [];
+  private detailScroll = 0;
   private inputMode = false;
   private inputBuffer = "";
   private inputPrompt = "";
@@ -144,7 +171,10 @@ class TUI {
   private stopFlag = false;
   private intervalId: ReturnType<typeof setInterval> | null = null;
   private lastFlash: { msg: string; until: number } | null = null;
-  private debugSection = 0;
+  // Unified cursor across Debug page: walks through sections AND individual
+  // actions as one linear list. Sections are read-only (Enter is a no-op);
+  // actions execute on Enter.
+  private debugCursor = 0;
 
   constructor(
     private db: DB,
@@ -225,10 +255,9 @@ class TUI {
 
     if (this.page === "candidates") {
       this.candidates = this.db.fetchActive(50);
-      this.selected = Math.min(
-        this.selected,
-        Math.max(0, this.candidates.length - 1),
-      );
+      this.nonCandidates = this.db.fetchNonCandidates(50);
+      const total = this.candidates.length + this.nonCandidates.length;
+      this.selected = Math.min(this.selected, Math.max(0, total - 1));
     } else if (this.page === "keywords") {
       this.keywords = this.db.listKeywords();
       this.selected = Math.min(
@@ -313,12 +342,36 @@ class TUI {
         this.stopFlag = true;
         return;
       }
-      if (key === "j" || key === "\x1b[B") {
+      // ←/h prev item · →/l next item
+      if (key === "\x1b[D" || key === "h") {
+        this.navigateDetail(-1);
+        return;
+      }
+      if (key === "\x1b[C" || key === "l") {
         this.navigateDetail(1);
         return;
       }
-      if (key === "k" || key === "\x1b[A") {
-        this.navigateDetail(-1);
+      // ↑/k scroll up · ↓/j scroll down (page-style scrolling)
+      if (key === "\x1b[A" || key === "k") {
+        this.detailScroll = Math.max(0, this.detailScroll - 1);
+        this.draw();
+        return;
+      }
+      if (key === "\x1b[B" || key === "j") {
+        this.detailScroll = this.detailScroll + 1;
+        this.draw();
+        return;
+      }
+      if (key === "\x1b[5~") {
+        // PgUp
+        this.detailScroll = Math.max(0, this.detailScroll - 10);
+        this.draw();
+        return;
+      }
+      if (key === "\x1b[6~") {
+        // PgDn
+        this.detailScroll = this.detailScroll + 10;
+        this.draw();
         return;
       }
       if (key === "a" || key === "y") {
@@ -330,9 +383,10 @@ class TUI {
         return;
       }
       if (key === "q" || key === "\x1b") {
-        // q / esc explicitly close
+        // q / bare ESC explicitly close
         this.detailSuggestion = null;
         this.detailTweets = [];
+        this.detailScroll = 0;
         this.draw();
         return;
       }
@@ -405,44 +459,45 @@ class TUI {
   }
 
   private onCandidatesKey(key: string): void {
-    if (this.candidates.length === 0) return;
-    let moved = false;
+    const combined = [...this.candidates, ...this.nonCandidates];
+    if (combined.length === 0) return;
     if (key === "j" || key === `${ESC}B` || key === "\x1b[B") {
-      this.selected = Math.min(this.selected + 1, this.candidates.length - 1);
-      moved = true;
+      this.selected = Math.min(this.selected + 1, combined.length - 1);
     } else if (key === "k" || key === `${ESC}A` || key === "\x1b[A") {
       this.selected = Math.max(this.selected - 1, 0);
-      moved = true;
     } else if (key === "o") {
-      const r = this.candidates[this.selected];
+      const r = combined[this.selected];
       if (r) {
         spawn("open", [r.url], { stdio: "ignore", detached: true }).unref();
         this.flash(`opened ${r.url}`);
       }
     } else if (key === "\r" || key === "\n" || key === " ") {
-      const r = this.candidates[this.selected];
+      const r = combined[this.selected];
       if (r) {
         this.detailRow = r;
         this.draw();
         return;
       }
     } else if (key === "s") {
-      const r = this.candidates[this.selected];
+      const r = combined[this.selected];
       if (r) {
         this.db.markSeen(r.id);
         this.refresh();
         this.flash(`marked seen: @${r.author}`);
       }
     } else if (key === "r") {
-      const r = this.candidates[this.selected];
+      const r = combined[this.selected];
       if (r) {
         this.db.markReplied(r.id);
         this.refresh();
         this.flash(`marked replied: @${r.author}`);
       }
+    } else if (key === "C") {
+      const n = this.db.clearLowEngagementOldTweets(3600);
+      this.refresh();
+      this.flash(`cleared ${n} tweets (0 likes, >1h old)`, 4000);
     }
-    if (moved) this.draw();
-    else this.draw();
+    this.draw();
   }
 
   private onKeywordsKey(key: string): void {
@@ -557,6 +612,7 @@ class TUI {
 
   private openSuggestionDetail(s: SuggestionRow): void {
     this.detailSuggestion = s;
+    this.detailScroll = 0;
     try {
       this.detailTweets = this.db.fetchSuggestionEvidence(s.chunk_id, s.keyword, 5);
     } catch {
@@ -586,6 +642,7 @@ class TUI {
     if (!updated) {
       this.detailSuggestion = null;
       this.detailTweets = [];
+      this.detailScroll = 0;
       this.flash("already resolved");
     } else if (state === "accepted") {
       this.flash(this.applySuggestion(updated));
@@ -596,6 +653,7 @@ class TUI {
     if (this.suggestions.length === 0) {
       this.detailSuggestion = null;
       this.detailTweets = [];
+      this.detailScroll = 0;
       this.selected = 0;
     } else if (updated) {
       // advance to whatever now sits where the resolved row was, or the
@@ -660,24 +718,106 @@ class TUI {
   // ---------- debug page actions ----------
   private onDebugKey(key: string): void {
     if (this.busy) return;
+    const items = this.getDebugItems();
+    // ↑/↓ (or j/k) walks the unified list of sections + actions.
     if (key === "j" || key === "\x1b[B") {
-      this.debugSection = Math.min(this.debugSection + 1, this.debugSectionCount() - 1);
+      this.debugCursor = Math.min(this.debugCursor + 1, items.length - 1);
       this.draw();
       return;
     }
     if (key === "k" || key === "\x1b[A") {
-      this.debugSection = Math.max(0, this.debugSection - 1);
+      this.debugCursor = Math.max(0, this.debugCursor - 1);
       this.draw();
       return;
     }
+    if (key === "\r" || key === "\n" || key === " ") {
+      const item = items[this.debugCursor];
+      if (item && item.kind === "action") void this.runDebugAction(item);
+      return;
+    }
+    // Legacy single-key shortcuts (still work regardless of cursor position).
     if (key === "R") void this.reloadDaemon();
     else if (key === "S") void this.stopDaemonAction();
     else if (key === "B") void this.startDaemonAction();
   }
 
-  private debugSectionCount(): number {
-    // keep in sync with renderDebug section order
-    return 6;
+  private getDebugItems(): DebugItem[] {
+    return [
+      { kind: "section", id: "daemon" },
+      { kind: "section", id: "activity" },
+      {
+        kind: "action",
+        label: "restart daemon",
+        hint: "stop + start in background",
+        run: () => this.reloadDaemon(),
+      },
+      {
+        kind: "action",
+        label: "stop daemon",
+        run: () => this.stopDaemonAction(),
+      },
+      {
+        kind: "action",
+        label: "start daemon",
+        run: () => this.startDaemonAction(),
+      },
+      {
+        kind: "action",
+        label: "clear scrape cooldowns",
+        hint: "reset last_scanned_at on every author/keyword/feed",
+        run: async () => {
+          const n = this.db.clearScanCooldowns();
+          this.flash(`cleared cooldowns on ${n} targets`, 4000);
+        },
+      },
+      {
+        kind: "action",
+        label: "clear suggestions cursor",
+        hint: "wipe all chunks + suggestions; suggester re-processes from scratch",
+        run: async () => {
+          const n = this.db.clearSuggestionsHistory();
+          this.flash(`unchunked ${n} tweets; suggester history wiped`, 4000);
+        },
+      },
+      {
+        kind: "action",
+        label: "open config in default editor",
+        hint: DEFAULT_CONFIG_PATH,
+        run: async () => {
+          spawn("open", [DEFAULT_CONFIG_PATH], {
+            stdio: "ignore",
+            detached: true,
+          }).unref();
+          this.flash(`opened ${DEFAULT_CONFIG_PATH}`, 3000);
+        },
+      },
+      {
+        kind: "action",
+        label: "open daemon log",
+        hint: logFilePath(),
+        run: async () => {
+          spawn("open", [logFilePath()], {
+            stdio: "ignore",
+            detached: true,
+          }).unref();
+          this.flash(`opened ${logFilePath()}`, 3000);
+        },
+      },
+      { kind: "section", id: "paths" },
+      { kind: "section", id: "scheduling" },
+      { kind: "section", id: "stats" },
+      { kind: "section", id: "recent_log" },
+    ];
+  }
+
+  private async runDebugAction(action: DebugAction): Promise<void> {
+    try {
+      await action.run();
+    } catch (e) {
+      this.flash(`action failed: ${(e as Error).message}`, 5000);
+    } finally {
+      this.draw();
+    }
   }
 
   private async reloadDaemon(): Promise<void> {
@@ -837,7 +977,9 @@ class TUI {
       RESET;
     lines.push(header);
 
-    if (this.candidates.length === 0) {
+    const candCount = this.candidates.length;
+    const total = candCount + this.nonCandidates.length;
+    if (total === 0) {
       lines.push("");
       lines.push(
         DIM +
@@ -847,8 +989,8 @@ class TUI {
       return lines.join("\n");
     }
 
-    this.candidates.forEach((r, i) => {
-      const isSel = i === this.selected;
+    const pushRow = (r: TweetRow, globalIdx: number): void => {
+      const isSel = globalIdx === this.selected;
       const score = r.llm_score == null ? "—" : r.llm_score.toFixed(1);
       const scoreHot = (r.llm_score ?? 0) >= this.cfg.judge.notify_threshold;
       const scoreCell = scoreHot
@@ -860,23 +1002,23 @@ class TUI {
       const suffix = isSel ? RESET : "";
       const authorCell = `${FG_CYAN}@${r.author}${RESET}${isSel ? REVERSE : ""}`;
 
-      const row =
+      lines.push(
         prefix +
-        padRight(String(i), COL_IDX) +
-        " " +
-        padRight(ageStr(r.created_at), COL_AGE) +
-        " " +
-        padRight(authorCell, COL_AUTHOR) +
-        " " +
-        padRight(scoreCell, COL_SCORE) +
-        " " +
-        padRight(velocity, COL_VEL) +
-        " " +
-        padRight(String(r.likes ?? 0), COL_LIKES) +
-        " " +
-        truncVisible(r.text, COL_TEXT) +
-        suffix;
-      lines.push(row);
+          padRight(String(globalIdx), COL_IDX) +
+          " " +
+          padRight(ageStr(r.created_at), COL_AGE) +
+          " " +
+          padRight(authorCell, COL_AUTHOR) +
+          " " +
+          padRight(scoreCell, COL_SCORE) +
+          " " +
+          padRight(velocity, COL_VEL) +
+          " " +
+          padRight(String(r.likes ?? 0), COL_LIKES) +
+          " " +
+          truncVisible(r.text, COL_TEXT) +
+          suffix,
+      );
 
       if (r.llm_angle) {
         const indent = " ".repeat(COL_FIXED);
@@ -891,7 +1033,44 @@ class TUI {
             (isSel ? RESET : ""),
         );
       }
-    });
+    };
+
+    // Row-level windowing centered on the selection — matches the
+    // suggestions page. Candidate rows can be 2 lines tall when an
+    // llm_angle is set, so halve the budget vs. the suggestions page
+    // (whose rows are always 1 line) to keep the worst case from
+    // overflowing past the terminal height.
+    const rows = stdout.rows || 24;
+    const dataRows = Math.max(3, Math.floor((rows - 10) / 2));
+    const sel = Math.max(0, Math.min(this.selected, total - 1));
+    let start = Math.max(0, sel - Math.floor(dataRows / 2));
+    let end = Math.min(total, start + dataRows);
+    start = Math.max(0, end - dataRows);
+
+    for (let i = start; i < end; i++) {
+      // Insert the section divider when we cross from candidates into
+      // non-candidates inside the visible window.
+      if (i === candCount && i > start) {
+        lines.push("");
+        lines.push(DIM + "─".repeat(cols) + RESET);
+        lines.push("");
+      }
+      const r = i < candCount
+        ? this.candidates[i]!
+        : this.nonCandidates[i - candCount]!;
+      pushRow(r, i);
+    }
+
+    if (start > 0 || end < total) {
+      lines.push(
+        DIM +
+          `  ${start + 1}-${end} of ${total}` +
+          (start > 0 ? `  ↑${start}` : "") +
+          (end < total ? `  ↓${total - end}` : "") +
+          RESET,
+      );
+    }
+
     return lines.join("\n");
   }
 
@@ -1084,14 +1263,14 @@ class TUI {
     if (this.detailSuggestion) {
       return (
         DIM +
-        "j/k ↑/↓ next/prev · a/y accept · r/n reject · esc/q back" +
+        "←/→ prev/next item · ↑/↓ scroll · a/y accept · r/n reject · esc/q back" +
         RESET
       );
     }
     if (this.page === "candidates") {
       return (
         DIM +
-        "j/k move · enter/space view · o open · s seen · r replied · Tab/←→ switch · q quit" +
+        "j/k move · enter/space view · o open · s seen · r replied · C clear stale · Tab/←→ switch · q quit" +
         RESET
       );
     }
@@ -1111,7 +1290,7 @@ class TUI {
     }
     return (
       DIM +
-      "j/k section · R reload daemon · S stop · B boot · Tab/←→ switch · q quit" +
+      "↑/↓ select · Enter run · R reload · S stop · B boot · Tab/←→ switch · q quit" +
       RESET
     );
   }
@@ -1125,139 +1304,126 @@ class TUI {
       return `${Math.floor(sec / 86400)}d`;
     };
 
-    const sections: string[][] = [];
-
-    // 0: daemon
-    {
-      const lines: string[] = [];
-      lines.push(BOLD + "daemon" + RESET);
-      if (this.daemonStatus === "running") {
-        const uptime = this.debug.daemonStartedAt != null
-          ? fmtAge(this.debug.daemonStartedAt)
-          : "?";
-        lines.push(
-          `  ${FG_GREEN}● running${RESET}  PID ${this.daemonPid}  uptime ~${uptime}`,
-        );
-      } else {
-        lines.push(`  ${FG_RED}● stopped${RESET}`);
+    // Per-section line builders. Each returns its content; no left prefix.
+    const renderSection = (id: DebugSection["id"]): string[] => {
+      if (id === "daemon") {
+        const lines = [BOLD + "daemon" + RESET];
+        if (this.daemonStatus === "running") {
+          const uptime = this.debug.daemonStartedAt != null
+            ? fmtAge(this.debug.daemonStartedAt)
+            : "?";
+          lines.push(
+            `  ${FG_GREEN}● running${RESET}  PID ${this.daemonPid}  uptime ~${uptime}`,
+          );
+        } else {
+          lines.push(`  ${FG_RED}● stopped${RESET}`);
+        }
+        return lines;
       }
-      sections.push(lines);
-    }
-
-    // 1: activity chart
-    {
-      const lines: string[] = [];
-      lines.push(BOLD + "activity" + RESET + DIM + " (last 60m, 1-min buckets)" + RESET);
-      // chart drawn at cols-2 so it fits with the left margin
-      for (const l of this.renderActivityChart(Math.max(20, cols - 2))) lines.push(l);
-      sections.push(lines);
-    }
-
-    // 2: paths
-    {
-      const lines: string[] = [];
-      lines.push(BOLD + "paths" + RESET);
-      lines.push(`  config:  ${DIM}${DEFAULT_CONFIG_PATH}${RESET}`);
-      lines.push(`  db:      ${DIM}${this.cfg.storage.db_path}${RESET}`);
-      lines.push(`  log:     ${DIM}${logFilePath()}${RESET}`);
-      lines.push(`  profile: ${DIM}${this.cfg.scraper.profile_path}${RESET}`);
-      sections.push(lines);
-    }
-
-    // 3: scheduling
-    {
-      const lines: string[] = [];
-      lines.push(BOLD + "scheduling" + RESET);
-      const sched = scheduleState(this.cfg);
-      const window = describeWindow(this.cfg);
-      const labeled = (k: string, v: string) =>
-        `  ${DIM}${padRight(k, 14)}${RESET} ${v}`;
-      lines.push(labeled("active hours", window));
-      if (sched.active) {
-        lines.push(labeled("state", `${FG_GREEN}● active${RESET}`));
-      } else {
-        const msUntil = sched.sleepMs;
-        const hUntil = Math.floor(msUntil / 3_600_000);
-        const mUntil = Math.floor((msUntil % 3_600_000) / 60_000);
-        const at = sched.nextActiveAt.toLocaleTimeString([], {
-          hour: "2-digit",
-          minute: "2-digit",
+      if (id === "activity") {
+        const lines = [
+          BOLD + "activity" + RESET + DIM + " (last 60m, 1-min buckets)" + RESET,
+        ];
+        for (const l of this.renderActivityChart(Math.max(20, cols - 2))) lines.push(l);
+        return lines;
+      }
+      if (id === "paths") {
+        return [
+          BOLD + "paths" + RESET,
+          `  config:  ${DIM}${DEFAULT_CONFIG_PATH}${RESET}`,
+          `  db:      ${DIM}${this.cfg.storage.db_path}${RESET}`,
+          `  log:     ${DIM}${logFilePath()}${RESET}`,
+          `  profile: ${DIM}${this.cfg.scraper.profile_path}${RESET}`,
+        ];
+      }
+      if (id === "scheduling") {
+        const lines: string[] = [BOLD + "scheduling" + RESET];
+        const sched = scheduleState(this.cfg);
+        const window = describeWindow(this.cfg);
+        const labeled = (k: string, v: string) =>
+          `  ${DIM}${padRight(k, 14)}${RESET} ${v}`;
+        lines.push(labeled("active hours", window));
+        if (sched.active) {
+          lines.push(labeled("state", `${FG_GREEN}● active${RESET}`));
+        } else {
+          const msUntil = sched.sleepMs;
+          const hUntil = Math.floor(msUntil / 3_600_000);
+          const mUntil = Math.floor((msUntil % 3_600_000) / 60_000);
+          const at = sched.nextActiveAt.toLocaleTimeString([], {
+            hour: "2-digit",
+            minute: "2-digit",
+          });
+          lines.push(
+            labeled(
+              "state",
+              `${FG_YELLOW}○ quiet${RESET} · resumes at ${at} (in ${hUntil}h ${mUntil}m)`,
+            ),
+          );
+        }
+        const watchCount = this.debug.stats?.watchlist ?? 0;
+        const kwCount = this.debug.stats?.keywords ?? 0;
+        const feedCount = 1;
+        const sum = scheduleSummary(this.cfg, {
+          watchlist: watchCount,
+          keywords: kwCount,
+          feeds: feedCount,
         });
         lines.push(
           labeled(
-            "state",
-            `${FG_YELLOW}○ quiet${RESET} · resumes at ${at} (in ${hUntil}h ${mUntil}m)`,
+            "cadence",
+            `~${sum.scrapesPerMin.toFixed(1)} scrapes/min · ` +
+              `${this.cfg.schedule.base_interval_sec}s ± ${this.cfg.schedule.jitter_sec}s gap`,
           ),
         );
-      }
-      const watchCount = this.debug.stats?.watchlist ?? 0;
-      const kwCount = this.debug.stats?.keywords ?? 0;
-      const feedCount = 1; // home; if we add more, query db
-      const sum = scheduleSummary(this.cfg, {
-        watchlist: watchCount,
-        keywords: kwCount,
-        feeds: feedCount,
-      });
-      lines.push(
-        labeled(
-          "cadence",
-          `~${sum.scrapesPerMin.toFixed(1)} scrapes/min · ` +
-            `${this.cfg.schedule.base_interval_sec}s ± ${this.cfg.schedule.jitter_sec}s gap`,
-        ),
-      );
-      if (this.cfg.schedule.long_break_after > 0) {
+        if (this.cfg.schedule.long_break_after > 0) {
+          lines.push(
+            labeled(
+              "long break",
+              `${this.cfg.schedule.long_break_sec}s every ${this.cfg.schedule.long_break_after} scrapes ` +
+                `${DIM}(≈ every ${sum.longBreakEveryMin.toFixed(0)} min wall-clock)${RESET}`,
+            ),
+          );
+        } else {
+          lines.push(labeled("long break", `${DIM}disabled${RESET}`));
+        }
         lines.push(
           labeled(
-            "long break",
-            `${this.cfg.schedule.long_break_sec}s every ${this.cfg.schedule.long_break_after} scrapes ` +
-              `${DIM}(≈ every ${sum.longBreakEveryMin.toFixed(0)} min wall-clock)${RESET}`,
+            "targets",
+            `${sum.totalTargets} total  ${DIM}(${watchCount}w · ${kwCount}k · ${feedCount}f)${RESET}` +
+              ` · tracker priority for fresh tweets`,
           ),
         );
-      } else {
-        lines.push(labeled("long break", `${DIM}disabled${RESET}`));
+        lines.push(
+          labeled(
+            "full cycle",
+            `~${sum.cycleMinutes.toFixed(0)} min per target ${DIM}(round-robin oldest-first)${RESET}`,
+          ),
+        );
+        return lines;
       }
-      lines.push(
-        labeled(
-          "targets",
-          `${sum.totalTargets} total  ${DIM}(${watchCount}w · ${kwCount}k · ${feedCount}f)${RESET}` +
-            ` · tracker priority for fresh tweets`,
-        ),
-      );
-      lines.push(
-        labeled(
-          "full cycle",
-          `~${sum.cycleMinutes.toFixed(0)} min per target ${DIM}(round-robin oldest-first)${RESET}`,
-        ),
-      );
-      sections.push(lines);
-    }
-
-    // 4: stats
-    {
-      const lines: string[] = [];
-      lines.push(BOLD + "stats" + RESET);
-      const s = this.debug.stats;
-      if (s) {
-        const pair = (k: string, v: number) =>
-          `  ${DIM}${padRight(k, 16)}${RESET} ${v}`;
-        lines.push(pair("tweets total", s.tweets_total));
-        lines.push(pair("active", s.active));
-        lines.push(pair("pending judge", s.pending_judge));
-        lines.push(pair("notified", s.notified));
-        lines.push(pair("seen", s.seen));
-        lines.push(pair("replied", s.replied));
-        lines.push(pair("watchlist", s.watchlist));
-        lines.push(pair("keywords", s.keywords));
-      } else {
-        lines.push(DIM + "  (no stats yet)" + RESET);
+      if (id === "stats") {
+        const lines = [BOLD + "stats" + RESET];
+        const s = this.debug.stats;
+        if (s) {
+          const pair = (k: string, v: number) =>
+            `  ${DIM}${padRight(k, 16)}${RESET} ${v}`;
+          lines.push(pair("tweets total", s.tweets_total));
+          lines.push(pair("active", s.active));
+          lines.push(pair("pending judge", s.pending_judge));
+          lines.push(pair("notified", s.notified));
+          lines.push(pair("seen", s.seen));
+          lines.push(pair("replied", s.replied));
+          lines.push(pair("watchlist", s.watchlist));
+          lines.push(pair("keywords", s.keywords));
+        } else {
+          lines.push(DIM + "  (no stats yet)" + RESET);
+        }
+        return lines;
       }
-      sections.push(lines);
-    }
-
-    // 5: recent log
-    {
-      const lines: string[] = [];
-      lines.push(BOLD + "recent log" + RESET + DIM + " (" + logFilePath() + ")" + RESET);
+      // recent_log
+      const lines = [
+        BOLD + "recent log" + RESET + DIM + " (" + logFilePath() + ")" + RESET,
+      ];
       if (this.debug.logTail.length === 0) {
         lines.push(DIM + "  (log is empty)" + RESET);
       } else {
@@ -1266,32 +1432,77 @@ class TUI {
           lines.push("  " + truncVisible(l, maxLineLen));
         }
       }
-      sections.push(lines);
-    }
+      return lines;
+    };
 
-    const sel = Math.max(0, Math.min(this.debugSection, sections.length - 1));
+    const items = this.getDebugItems();
+    const cur = Math.max(0, Math.min(this.debugCursor, items.length - 1));
+
+    // Pre-compute action label width so the menu lines up.
+    const actionItems = items.filter(
+      (it): it is DebugAction => it.kind === "action",
+    );
+    const labelW = actionItems.length
+      ? Math.max(...actionItems.map((a) => stripAnsi(a.label).length))
+      : 0;
+
     const out: string[] = [];
-    let selStart = 0;
-    let selEnd = 0;
-    sections.forEach((secLines, i) => {
-      const isSel = i === sel;
-      if (isSel) selStart = out.length;
-      const prefix = isSel ? `${FG_CYAN}│${RESET} ` : "  ";
-      for (const line of secLines) out.push(prefix + line);
-      if (isSel) selEnd = out.length - 1;
-      if (i < sections.length - 1) out.push("");
-    });
+    let curStart = 0;
+    let curEnd = 0;
+
+    let i = 0;
+    while (i < items.length) {
+      const item = items[i]!;
+      if (item.kind === "section") {
+        const isSel = i === cur;
+        if (isSel) curStart = out.length;
+        const prefix = isSel ? `${FG_CYAN}│${RESET} ` : "  ";
+        for (const line of renderSection(item.id)) out.push(prefix + line);
+        if (isSel) curEnd = out.length - 1;
+        i++;
+        if (i < items.length) out.push("");
+        continue;
+      }
+      // Action group: gather consecutive action items.
+      const groupStart = i;
+      let groupEnd = i;
+      while (groupEnd < items.length && items[groupEnd]!.kind === "action") {
+        groupEnd++;
+      }
+      const groupSelected = cur >= groupStart && cur < groupEnd;
+      const groupPrefix = groupSelected ? `${FG_CYAN}│${RESET} ` : "  ";
+
+      out.push(
+        groupPrefix + BOLD + "actions" + RESET + DIM + " (Enter run)" + RESET,
+      );
+      for (let k = groupStart; k < groupEnd; k++) {
+        const a = items[k] as DebugAction;
+        const isSel = k === cur;
+        if (isSel) curStart = out.length;
+        const marker = isSel ? `${FG_CYAN}›${RESET}` : " ";
+        const label = isSel
+          ? `${BOLD}${padRight(a.label, labelW)}${RESET}`
+          : padRight(a.label, labelW);
+        const hint = a.hint ? `   ${DIM}${a.hint}${RESET}` : "";
+        out.push(groupPrefix + `  ${marker} ${label}${hint}`);
+        if (isSel) curEnd = out.length - 1;
+      }
+      if (this.busy && groupSelected) {
+        out.push(groupPrefix + `    ${FG_YELLOW}working…${RESET}`);
+      }
+      i = groupEnd;
+      if (i < items.length) out.push("");
+    }
 
     // Reserve: header(1) + blank(1) + footer-blank(1) + footer(1) + flash-blank(1) + flash(1) = 6
     const rows = stdout.rows || 24;
     const viewRows = Math.max(3, rows - 6);
     if (out.length <= viewRows) return out.join("\n");
 
-    // Overflow: reserve one line for the scroll indicator
     const innerRows = Math.max(1, viewRows - 1);
     let offset = 0;
-    if (selEnd >= innerRows) offset = selEnd - innerRows + 1;
-    if (selStart < offset) offset = selStart;
+    if (curEnd >= innerRows) offset = curEnd - innerRows + 1;
+    if (curStart < offset) offset = curStart;
     offset = Math.max(0, Math.min(offset, out.length - innerRows));
 
     const visible = out.slice(offset, offset + innerRows);
@@ -1379,6 +1590,18 @@ class TUI {
       }
     }
 
+    const pitches = parsePitchBullets(r.llm_pitch);
+    if (pitches.length > 0) {
+      lines.push("");
+      lines.push(BOLD + FG_GREEN + "pitch" + RESET);
+      for (const bullet of pitches) {
+        const wrapped = wrapText(bullet, width - 2);
+        wrapped.forEach((l, i) => {
+          lines.push(FG_GREEN + (i === 0 ? "• " : "  ") + l + RESET);
+        });
+      }
+    }
+
     return lines.join("\n");
   }
 
@@ -1429,23 +1652,60 @@ class TUI {
           " — tweets in chunk that match this keyword" +
           RESET,
       );
-      for (const t of this.detailTweets) {
+      const boxWidth = width;
+      // Inner content area is "│ <text> │" → 2 chars of frame + 2 of padding.
+      const innerWidth = Math.max(10, boxWidth - 4);
+      const top = FG_GRAY + "┌" + "─".repeat(boxWidth - 2) + "┐" + RESET;
+      const bot = FG_GRAY + "└" + "─".repeat(boxWidth - 2) + "┘" + RESET;
+      const frame = (content: string): string => {
+        const visible = stripAnsi(content).length;
+        const pad = Math.max(0, innerWidth - visible);
+        return (
+          FG_GRAY + "│ " + RESET +
+          content +
+          " ".repeat(pad) +
+          FG_GRAY + " │" + RESET
+        );
+      };
+      this.detailTweets.forEach((t, idx) => {
+        if (idx > 0) lines.push("");
         const header =
-          `${FG_GRAY}[${truncVisible(t.source, 28)}]${RESET} ` +
           `${FG_CYAN}@${t.author}${RESET} ` +
           `${DIM}${ageStr(t.created_at)} · ${t.likes ?? 0}♥ ${t.replies ?? 0}↩${RESET}`;
-        lines.push(header);
-        const body = wrapText(t.text, width - 2);
-        for (const l of body.slice(0, 3)) {
-          lines.push("  " + l);
+        lines.push(top);
+        lines.push(frame(header));
+        lines.push(frame(""));
+        for (const l of wrapText(t.text, innerWidth)) {
+          lines.push(frame(l));
         }
-        if (body.length > 3) {
-          lines.push("  " + DIM + `…(+${body.length - 3} more lines)` + RESET);
-        }
-      }
+        lines.push(bot);
+      });
     }
 
-    return lines.join("\n");
+    // Window the content using detailScroll. Match the debug-tab math so
+    // the reserved chrome budget (header + footers + flash) lines up.
+    const rows = stdout.rows || 24;
+    const viewRows = Math.max(3, rows - 6);
+    if (lines.length <= viewRows) {
+      // Content fits — keep scroll pinned at top.
+      this.detailScroll = 0;
+      return lines.join("\n");
+    }
+    const innerRows = Math.max(1, viewRows - 1);
+    const maxOffset = Math.max(0, lines.length - innerRows);
+    this.detailScroll = Math.max(0, Math.min(this.detailScroll, maxOffset));
+    const offset = this.detailScroll;
+    const visible = lines.slice(offset, offset + innerRows);
+    const above = offset;
+    const below = lines.length - offset - visible.length;
+    visible.push(
+      DIM +
+        `  ${offset + 1}-${offset + visible.length} of ${lines.length}` +
+        (above > 0 ? `  ↑${above}` : "") +
+        (below > 0 ? `  ↓${below}` : "") +
+        RESET,
+    );
+    return visible.join("\n");
   }
 
   private renderInputBar(): string {

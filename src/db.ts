@@ -22,6 +22,7 @@ CREATE TABLE IF NOT EXISTS tweets (
     llm_score             REAL,
     llm_reason            TEXT,
     llm_angle             TEXT,
+    llm_pitch             TEXT,
     notified_at           TEXT,
     seen_at               TEXT,
     replied_at            TEXT,
@@ -80,6 +81,10 @@ const MIGRATIONS: { name: string; sql: string }[] = [
   {
     name: "suggestions.replacement",
     sql: "ALTER TABLE suggestions ADD COLUMN replacement TEXT",
+  },
+  {
+    name: "tweets.llm_pitch",
+    sql: "ALTER TABLE tweets ADD COLUMN llm_pitch TEXT",
   },
 ];
 
@@ -288,6 +293,50 @@ export class DB {
       .run(nowIso(), name);
   }
 
+  /**
+   * Reset last_scanned_at on every author/keyword/feed so the unified
+   * scheduler treats them all as never-scanned. Useful when you've just
+   * added a batch and want them rotated in immediately. Returns the
+   * total number of rows affected.
+   */
+  clearScanCooldowns(): number {
+    const a = this.db.prepare("UPDATE authors SET last_scanned_at = NULL").run();
+    const k = this.db.prepare("UPDATE keywords SET last_scanned_at = NULL").run();
+    const f = this.db.prepare("UPDATE feeds SET last_scanned_at = NULL").run();
+    return a.changes + k.changes + f.changes;
+  }
+
+  /**
+   * Delete tweets with 0 likes that were posted more than `minAgeSec` seconds
+   * ago. Returns the number of rows deleted.
+   */
+  clearLowEngagementOldTweets(minAgeSec: number): number {
+    const cutoff = new Date(Date.now() - minAgeSec * 1000).toISOString();
+    const r = this.db
+      .prepare(
+        "DELETE FROM tweets WHERE COALESCE(likes, 0) = 0 AND created_at < ?",
+      )
+      .run(cutoff);
+    return r.changes;
+  }
+
+  /**
+   * Wipe all suggester history: unchunk every tweet, drop every chunk and
+   * suggestion. The suggester will re-process tweets from scratch on its next
+   * tick. Returns the number of tweets that were re-marked unchunked.
+   */
+  clearSuggestionsHistory(): number {
+    const tx = this.db.transaction(() => {
+      const t = this.db
+        .prepare("UPDATE tweets SET suggestion_chunk_id = NULL WHERE suggestion_chunk_id IS NOT NULL")
+        .run();
+      this.db.prepare("DELETE FROM suggestions").run();
+      this.db.prepare("DELETE FROM suggestion_chunks").run();
+      return t.changes;
+    });
+    return tx();
+  }
+
   /** Tracked tweet (fresh + unseen) overdue for velocity re-poll. */
   oldestStaleTrackedTweet(
     intervalSec: number,
@@ -388,12 +437,15 @@ export class DB {
     score: number,
     reason: string,
     angle: string,
+    pitchBullets: string[],
   ): void {
+    const pitchJson =
+      pitchBullets.length > 0 ? JSON.stringify(pitchBullets) : null;
     this.db
       .prepare(
-        "UPDATE tweets SET llm_score=?, llm_reason=?, llm_angle=? WHERE id=?",
+        "UPDATE tweets SET llm_score=?, llm_reason=?, llm_angle=?, llm_pitch=? WHERE id=?",
       )
-      .run(score, reason, angle, id);
+      .run(score, reason, angle, pitchJson, id);
   }
 
   markNotified(id: string): void {
@@ -536,6 +588,18 @@ export class DB {
         `SELECT * FROM tweets
          WHERE seen_at IS NULL AND passed_gate_at IS NOT NULL
          ORDER BY llm_score IS NULL, llm_score DESC, discovered_at DESC
+         LIMIT ?`,
+      )
+      .all(limit) as TweetRow[];
+  }
+
+  /** Scraped but unsurfaced tweets — the inverse of fetchActive. */
+  fetchNonCandidates(limit = 50): TweetRow[] {
+    return this.db
+      .prepare(
+        `SELECT * FROM tweets
+         WHERE seen_at IS NULL AND passed_gate_at IS NULL
+         ORDER BY discovered_at DESC
          LIMIT ?`,
       )
       .all(limit) as TweetRow[];

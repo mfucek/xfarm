@@ -40,11 +40,15 @@ export function resolveCredentialsPath(cfg: Config): string | null {
 
 const RESPONSE_SCHEMA = {
   type: Type.OBJECT,
-  required: ["score", "reason", "suggested_angle"],
+  required: ["score", "reason", "suggested_angle", "pitch_bullets"],
   properties: {
     score: { type: Type.NUMBER },
     reason: { type: Type.STRING },
     suggested_angle: { type: Type.STRING },
+    pitch_bullets: {
+      type: Type.ARRAY,
+      items: { type: Type.STRING },
+    },
   },
 };
 
@@ -106,16 +110,25 @@ export class Judge {
     try {
       const data = JSON.parse(txt) as JudgeResult;
       if (typeof data.score !== "number") throw new Error("score not number");
+      const bullets = Array.isArray(data.pitch_bullets)
+        ? data.pitch_bullets.filter((b) => typeof b === "string" && b.trim())
+        : [];
       return {
         score: data.score,
         reason: data.reason ?? "",
         suggested_angle: data.suggested_angle ?? "",
+        pitch_bullets: bullets,
       };
     } catch (e) {
       console.warn(
         `[judge] non-JSON response for id=${t.id}: ${(e as Error).message}\nbody: ${txt.slice(0, 300)}`,
       );
-      return { score: 0, reason: "parse_error", suggested_angle: "" };
+      return {
+        score: 0,
+        reason: "parse_error",
+        suggested_angle: "",
+        pitch_bullets: [],
+      };
     }
   }
 }
@@ -135,7 +148,13 @@ export async function judgeLoop(
       if (stop.aborted) return;
       try {
         const r = await judge.judgeOne(t);
-        db.markJudged(t.id, r.score, r.reason, r.suggested_angle);
+        db.markJudged(
+          t.id,
+          r.score,
+          r.reason,
+          r.suggested_angle,
+          r.pitch_bullets,
+        );
         console.log(
           `[judge] @${t.author} id=${t.id.slice(0, 12)} -> ${r.score.toFixed(
             1,
@@ -143,7 +162,7 @@ export async function judgeLoop(
         );
       } catch (e) {
         console.error(`[judge] error on id=${t.id}:`, e);
-        db.markJudged(t.id, 0, "judge_error", "");
+        db.markJudged(t.id, 0, "judge_error", "", []);
       }
       await sleep(500);
     }

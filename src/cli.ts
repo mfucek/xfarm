@@ -176,6 +176,7 @@ judge
       llm_score: null,
       llm_reason: null,
       llm_angle: null,
+      llm_pitch: null,
       notified_at: null,
       seen_at: null,
       replied_at: null,
@@ -195,7 +196,7 @@ judge
     console.log(`Pending: ${pending.length}`);
     for (const t of pending) {
       const r = await j.judgeOne(t);
-      db.markJudged(t.id, r.score, r.reason, r.suggested_angle);
+      db.markJudged(t.id, r.score, r.reason, r.suggested_angle, r.pitch_bullets);
       console.log(`  @${t.author} ${t.id.slice(0, 12)} -> ${r.score.toFixed(1)} — ${r.reason}`);
     }
     db.close();

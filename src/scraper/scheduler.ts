@@ -16,11 +16,24 @@ type Target =
 
 /**
  * Picks the next scrape target. Priorities:
- *   1. Tracked tweets overdue for a velocity re-poll (time-sensitive).
- *   2. Otherwise, the configured target (author/keyword/feed) whose
- *      last_scanned_at is oldest — NULL counts as oldest.
+ *   1. Targets with last_scanned_at = NULL (just-reset or never-scanned) —
+ *      matches the user's mental model: clearing cooldowns means scrape now.
+ *   2. Tracked tweets overdue for a velocity re-poll (time-sensitive).
+ *   3. Otherwise, the configured target (author/keyword/feed) whose
+ *      last_scanned_at is oldest.
  */
 function pickNext(db: DB, cfg: Config): Target | null {
+  const author = db.oldestAuthor();
+  const keyword = db.oldestKeyword();
+  const feed = db.oldestFeed();
+
+  if (author && author.last_scanned_at === null)
+    return { type: "author", handle: author.handle, tier: author.tier };
+  if (keyword && keyword.last_scanned_at === null)
+    return { type: "keyword", query: keyword.query };
+  if (feed && feed.last_scanned_at === null)
+    return { type: "feed", name: feed.name };
+
   const tweet = db.oldestStaleTrackedTweet(
     cfg.velocity.tracker_interval_sec,
     cfg.velocity.max_age_hours,
@@ -28,19 +41,16 @@ function pickNext(db: DB, cfg: Config): Target | null {
   if (tweet) return { type: "tracked_tweet", id: tweet.id };
 
   const candidates: { ts: string; target: Target }[] = [];
-  const author = db.oldestAuthor();
   if (author)
     candidates.push({
       ts: author.last_scanned_at ?? "",
       target: { type: "author", handle: author.handle, tier: author.tier },
     });
-  const keyword = db.oldestKeyword();
   if (keyword)
     candidates.push({
       ts: keyword.last_scanned_at ?? "",
       target: { type: "keyword", query: keyword.query },
     });
-  const feed = db.oldestFeed();
   if (feed)
     candidates.push({
       ts: feed.last_scanned_at ?? "",
@@ -61,11 +71,11 @@ async function execute(
 ): Promise<string> {
   switch (t.type) {
     case "author": {
-      const n = await scanAuthor(browser, db, t.handle, t.tier, bucket);
+      const n = await scanAuthor(browser, db, t.handle, t.tier, cfg, bucket);
       return `watchlist @${t.handle}${n > 0 ? ` +${n}` : ""}`;
     }
     case "keyword": {
-      const n = await scanKeyword(browser, db, t.query, bucket);
+      const n = await scanKeyword(browser, db, t.query, cfg, bucket);
       return `keyword ${JSON.stringify(t.query)}${n > 0 ? ` +${n}` : ""}`;
     }
     case "feed": {
