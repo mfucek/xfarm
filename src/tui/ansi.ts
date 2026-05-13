@@ -1,0 +1,99 @@
+// ANSI escape codes + small text helpers shared by all TUI render modules.
+
+export const ESC = "\x1b[";
+export const ALT_ON = `${ESC}?1049h`;
+export const ALT_OFF = `${ESC}?1049l`;
+export const CLEAR = `${ESC}2J${ESC}H`;
+export const HOME = `${ESC}H`;
+export const HIDE_CURSOR = `${ESC}?25l`;
+export const SHOW_CURSOR = `${ESC}?25h`;
+export const RESET = `${ESC}0m`;
+export const BOLD = `${ESC}1m`;
+export const DIM = `${ESC}2m`;
+export const REVERSE = `${ESC}7m`;
+export const FG_CYAN = `${ESC}36m`;
+export const FG_GREEN = `${ESC}32m`;
+export const FG_YELLOW = `${ESC}33m`;
+export const FG_RED = `${ESC}31m`;
+export const FG_BLUE = `${ESC}94m`;
+export const FG_GRAY = `${ESC}90m`;
+
+export const stripAnsi = (s: string): string =>
+  s.replace(/\x1b\[[0-9;]*m/g, "");
+
+export const padRight = (s: string, n: number): string => {
+  const visible = stripAnsi(s).length;
+  if (visible >= n) return s;
+  return s + " ".repeat(n - visible);
+};
+
+export const truncVisible = (s: string, n: number): string => {
+  const oneLine = s.replace(/\s+/g, " ").trim();
+  if (oneLine.length <= n) return oneLine;
+  return oneLine.slice(0, Math.max(0, n - 1)) + "…";
+};
+
+export const parsePitchBullets = (raw: string | null): string[] => {
+  if (!raw) return [];
+  try {
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter(
+      (b): b is string => typeof b === "string" && b.trim().length > 0,
+    );
+  } catch {
+    return [];
+  }
+};
+
+export const wrapText = (s: string, width: number): string[] => {
+  if (width <= 0) return [s];
+  const lines: string[] = [];
+  for (const para of s.split(/\r?\n/)) {
+    if (para.length === 0) {
+      lines.push("");
+      continue;
+    }
+    const words = para.split(/\s+/).filter((w) => w.length > 0);
+    let cur = "";
+    for (const w of words) {
+      if (cur.length === 0) {
+        cur = w.length > width ? w.slice(0, width) : w;
+        if (w.length > width) {
+          lines.push(cur);
+          cur = w.slice(width);
+          while (cur.length > width) {
+            lines.push(cur.slice(0, width));
+            cur = cur.slice(width);
+          }
+        }
+      } else if (cur.length + 1 + w.length <= width) {
+        cur += " " + w;
+      } else {
+        lines.push(cur);
+        cur = w.length > width ? w.slice(0, width) : w;
+        if (w.length > width) {
+          lines.push(cur);
+          cur = w.slice(width);
+          while (cur.length > width) {
+            lines.push(cur.slice(0, width));
+            cur = cur.slice(width);
+          }
+        }
+      }
+    }
+    if (cur.length > 0) lines.push(cur);
+  }
+  return lines;
+};
+
+export const ageStr = (iso: string): string => {
+  const secs = Math.max(
+    0,
+    Math.floor((Date.now() - new Date(iso).getTime()) / 1000),
+  );
+  if (secs < 60) return `${secs}s`;
+  if (secs < 3600) return `${Math.floor(secs / 60)}m`;
+  if (secs < 86400) return `${Math.floor(secs / 3600)}h`;
+  return `${Math.floor(secs / 86400)}d`;
+};

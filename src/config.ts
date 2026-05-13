@@ -1,6 +1,13 @@
-import { readFileSync } from "node:fs";
+import {
+  chmodSync,
+  copyFileSync,
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  writeFileSync,
+} from "node:fs";
 import { homedir } from "node:os";
-import { resolve } from "node:path";
+import { dirname, resolve } from "node:path";
 import yaml from "js-yaml";
 import { z } from "zod";
 
@@ -64,14 +71,23 @@ const ScheduleSchema = z.object({
   home_interval_sec: z.number().int().positive().default(900),
 });
 
+// "gemini" → Vertex AI Gemini (pay-per-token GCP). "codex" → OpenAI Codex CLI
+// (uses your ChatGPT subscription via `codex login`).
+const ProviderSchema = z.enum(["gemini", "codex"]).default("gemini");
+
 const JudgeSchema = z.object({
-  // Optional here; can come from GOOGLE_VERTEX_PROJECT_ID env var instead.
+  provider: ProviderSchema,
+  // Gemini / Vertex fields. Required when provider === "gemini" (validated
+  // after parse); ignored otherwise.
   vertex_project: z.string().optional().default(""),
   vertex_location: z.string().default("us-central1"),
   model: z.string().default("gemini-2.5-flash"),
+  credentials_path: PathStr.nullable().optional(),
+  // Codex CLI fields. Used when provider === "codex".
+  codex_model: z.string().default("gpt-5-codex"),
+  codex_bin: z.string().default("codex"),
   notify_threshold: z.number().min(0).max(10).default(7.0),
   prompt_path: PathStr,
-  credentials_path: PathStr.nullable().optional(),
 });
 
 const NotifierSchema = z.object({
@@ -147,6 +163,117 @@ function applyEnvOverrides(cfg: Config): Config {
   return cfg;
 }
 
+/**
+ * Ensure a config.yaml exists at the default path, seeding it from
+ * config.example.yaml on first run. Returns the resolved config path.
+ */
+export function ensureConfigFile(): string {
+  const dest = DEFAULT_CONFIG_PATH;
+  if (existsSync(dest)) return dest;
+  mkdirSync(dirname(dest), { recursive: true });
+  // src/config.ts lives at src/; the example sits at the repo root.
+  const example = resolve(import.meta.dir, "..", "config.example.yaml");
+  if (existsSync(example)) {
+    copyFileSync(example, dest);
+  } else {
+    writeFileSync(dest, "scraper: {}\njudge: {}\n");
+  }
+  return dest;
+}
+
+/**
+ * Parse-only loader that does NOT enforce cross-field invariants like
+ * "Vertex project required when provider=gemini". Used by the Config tab so
+ * the user can edit their way out of an invalid state from inside the app.
+ * Falls back to a default-shaped config if the file is missing or unparseable.
+ */
+export function loadConfigLoose(path?: string): Config {
+  const p = path ? expandPath(path) : DEFAULT_CONFIG_PATH;
+  let parsed: unknown = {};
+  if (existsSync(p)) {
+    try {
+      parsed = yaml.load(readFileSync(p, "utf-8")) ?? {};
+    } catch {
+      parsed = {};
+    }
+  }
+  const validated = ConfigSchema.safeParse(parsed);
+  if (validated.success) return applyEnvOverrides(validated.data);
+  // Fall back to fully-defaulted shape so the TUI has something to work with.
+  // prompt_path is the only field without a sensible default; supply the bundled one.
+  const fallback = ConfigSchema.parse({
+    scraper: {
+      burner_cookies_path: "~/.xfarm/cookies.json",
+      user_agent:
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+    },
+    judge: { prompt_path: "./prompts/judge.md" },
+  });
+  return applyEnvOverrides(fallback);
+}
+
+/**
+ * Persist arbitrary patches into ~/.xfarm/config.yaml. Reads the existing
+ * YAML (so we don't drop comments-adjacent keys we don't know about),
+ * deep-merges the patch, and writes it back.
+ */
+export function patchConfigFile(patch: Record<string, unknown>): void {
+  ensureConfigFile();
+  const p = DEFAULT_CONFIG_PATH;
+  let current: Record<string, unknown> = {};
+  try {
+    const loaded = yaml.load(readFileSync(p, "utf-8"));
+    if (loaded && typeof loaded === "object") current = loaded as Record<string, unknown>;
+  } catch {
+    /* fall through to empty */
+  }
+  const merged = deepMerge(current, patch);
+  writeFileSync(p, yaml.dump(merged, { lineWidth: 120 }));
+}
+
+function deepMerge(
+  base: Record<string, unknown>,
+  patch: Record<string, unknown>,
+): Record<string, unknown> {
+  const out: Record<string, unknown> = { ...base };
+  for (const [k, v] of Object.entries(patch)) {
+    const cur = out[k];
+    if (
+      v && typeof v === "object" && !Array.isArray(v) &&
+      cur && typeof cur === "object" && !Array.isArray(cur)
+    ) {
+      out[k] = deepMerge(cur as Record<string, unknown>, v as Record<string, unknown>);
+    } else {
+      out[k] = v;
+    }
+  }
+  return out;
+}
+
+/** Path to the burner cookies file expected by the scraper. */
+export const DEFAULT_COOKIES_PATH = expandPath("~/.xfarm/cookies.json");
+
+/** Write burner cookies to ~/.xfarm/cookies.json with 0600 perms. */
+export function writeBurnerCookies(
+  username: string,
+  auth_token: string,
+  ct0: string,
+): string {
+  mkdirSync(dirname(DEFAULT_COOKIES_PATH), { recursive: true });
+  const cleaned = {
+    username: username.trim().replace(/^@/, ""),
+    auth_token: auth_token.trim(),
+    ct0: ct0.trim(),
+  };
+  writeFileSync(DEFAULT_COOKIES_PATH, JSON.stringify(cleaned, null, 2));
+  try {
+    chmodSync(DEFAULT_COOKIES_PATH, 0o600);
+  } catch {
+    /* platforms without POSIX perms — fine */
+  }
+  return DEFAULT_COOKIES_PATH;
+}
+
 export function loadConfig(path?: string): Config {
   const p = path ? expandPath(path) : DEFAULT_CONFIG_PATH;
   let raw: string;
@@ -160,10 +287,11 @@ export function loadConfig(path?: string): Config {
   const parsed = yaml.load(raw);
   const validated = ConfigSchema.parse(parsed);
   const final = applyEnvOverrides(validated);
-  if (!final.judge.vertex_project) {
+  if (final.judge.provider === "gemini" && !final.judge.vertex_project) {
     throw new Error(
-      "Vertex project ID is required. Set `judge.vertex_project` in config.yaml " +
-        "or GOOGLE_VERTEX_PROJECT_ID in .env",
+      "Vertex project ID is required when judge.provider='gemini'. " +
+        "Set `judge.vertex_project` in config.yaml, GOOGLE_VERTEX_PROJECT_ID " +
+        "in .env, or switch to provider='codex' in the Config tab.",
     );
   }
   return final;

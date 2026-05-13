@@ -11,4 +11,5 @@
 # hook do it for you).
 set -euo pipefail
 cd "$(dirname "$0")"
+./scripts/preflight.sh
 exec bun --watch run src/dev-watch.ts

@@ -14,6 +14,28 @@ const XFARM_HOME = join(homedir(), ".xfarm");
 
 export const pidFilePath = (): string => join(XFARM_HOME, "daemon.pid");
 export const logFilePath = (): string => join(XFARM_HOME, "daemon.log");
+const sessionMarkerPath = (): string => join(XFARM_HOME, "tui-session.ppid");
+
+/**
+ * True if this is the first TUI launch under the current parent (i.e. not a
+ * `bun --watch` hot-reload). Used to gate the daemon auto-start so file saves
+ * don't resurrect a daemon the user explicitly stopped. `bun --watch` keeps
+ * its own PID across child restarts, so PPID identifies the watch session.
+ */
+export function isFirstLaunchInSession(): boolean {
+  const p = sessionMarkerPath();
+  if (!existsSync(p)) return true;
+  try {
+    return Number(readFileSync(p, "utf-8").trim()) !== process.ppid;
+  } catch {
+    return true;
+  }
+}
+
+export function markSessionStarted(): void {
+  mkdirSync(XFARM_HOME, { recursive: true });
+  writeFileSync(sessionMarkerPath(), String(process.ppid));
+}
 
 export function readPid(): number | null {
   const p = pidFilePath();

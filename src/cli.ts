@@ -106,6 +106,17 @@ session
   });
 
 session
+  .command("open")
+  .description(
+    "Open a non-headless burner window with cookies injected (separate profile from daemon)",
+  )
+  .action(async () => {
+    const { openBurnerWindow } = await import("./scraper/burner-window.ts");
+    const cfg = loadConfig();
+    await openBurnerWindow(cfg);
+  });
+
+session
   .command("debug")
   .description("Open a real Chrome window (headful) for manual login or troubleshooting")
   .action(async () => {

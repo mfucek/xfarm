@@ -1,27 +1,27 @@
 import { readFileSync } from "node:fs";
-import { GoogleGenAI, Type } from "@google/genai";
 import type { Config } from "./config.ts";
 import type { DB } from "./db.ts";
-import { resolveCredentialsPath } from "./judge.ts";
+import { makeLlmClient } from "./judge.ts";
+import type { JsonSchema, LlmClient } from "./judge/llm.ts";
 import { sleep } from "./scraper/rate-limit.ts";
 import type { SuggestionVerdict, TweetRow } from "./types.ts";
 
-const RESPONSE_SCHEMA = {
-  type: Type.OBJECT,
+const RESPONSE_SCHEMA: JsonSchema = {
+  type: "object",
   required: ["suggestions"],
   properties: {
     suggestions: {
-      type: Type.ARRAY,
+      type: "array",
       items: {
-        type: Type.OBJECT,
+        type: "object",
         required: ["verdict", "keyword", "reason"],
         properties: {
-          verdict: { type: Type.STRING, enum: ["add", "remove", "change"] },
-          keyword: { type: Type.STRING },
-          // Required only when verdict='change'. Vertex doesn't support
-          // conditional required, so list it as optional and validate later.
-          replacement: { type: Type.STRING },
-          reason: { type: Type.STRING },
+          verdict: { type: "string", enum: ["add", "remove", "change"] },
+          keyword: { type: "string" },
+          // Required only when verdict='change'. Schema can't express
+          // conditional-required, so list it as optional and validate later.
+          replacement: { type: "string" },
+          reason: { type: "string" },
         },
       },
     },
@@ -36,19 +36,11 @@ type RawSuggestion = {
 };
 
 export class Suggester {
-  private ai: GoogleGenAI;
+  private llm: LlmClient;
   private template: string | null = null;
 
   constructor(private cfg: Config) {
-    const credPath = resolveCredentialsPath(cfg);
-    if (credPath) {
-      process.env.GOOGLE_APPLICATION_CREDENTIALS = credPath;
-    }
-    this.ai = new GoogleGenAI({
-      vertexai: true,
-      project: cfg.judge.vertex_project,
-      location: cfg.judge.vertex_location,
-    });
+    this.llm = makeLlmClient(cfg);
   }
 
   private getTemplate(): string {
@@ -98,16 +90,10 @@ export class Suggester {
     }[]
   > {
     const prompt = this.render(chunkId, tweets, keywords);
-    const resp = await this.ai.models.generateContent({
-      model: this.cfg.judge.model,
-      contents: prompt,
-      config: {
-        responseMimeType: "application/json",
-        responseSchema: RESPONSE_SCHEMA,
-      },
-    });
-    const txt = resp.text ?? "";
-    const data = JSON.parse(txt) as { suggestions?: RawSuggestion[] };
+    const data = await this.llm.generateJson<{ suggestions?: RawSuggestion[] }>(
+      prompt,
+      RESPONSE_SCHEMA,
+    );
     const raw = data.suggestions ?? [];
     const existing = new Set(keywords);
     const out: {

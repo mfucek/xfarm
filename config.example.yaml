@@ -48,14 +48,27 @@ schedule:
   home_interval_sec: 900        # visit x.com/home every ~15 min
 
 judge:
+  # "gemini" → Vertex AI (pay-per-token GCP). "codex" → OpenAI Codex CLI,
+  # which uses your ChatGPT subscription via `codex login`. The Config tab
+  # in the TUI is the easiest way to flip this.
+  provider: gemini
+
+  # --- gemini / Vertex settings (used when provider=gemini) ---
   vertex_project: "your-gcp-project"
   vertex_location: "us-central1"
   model: "gemini-2.5-flash"
-  notify_threshold: 7.0
-  prompt_path: ./prompts/judge.md
   # Optional: path to a service-account JSON key for Vertex.
   # If set, takes precedence over `gcloud auth application-default login` ADC.
   # credentials_path: ~/.xfarm/vertex-sa.json
+
+  # --- codex settings (used when provider=codex) ---
+  # Codex model name. Update as OpenAI ships new ones.
+  codex_model: "gpt-5-codex"
+  # Codex binary on PATH. Run `codex login` once to authenticate with ChatGPT.
+  codex_bin: "codex"
+
+  notify_threshold: 7.0
+  prompt_path: ./prompts/judge.md
 
 notifier:
   enabled: true
