@@ -19,6 +19,7 @@ import {
   scheduleState,
   summary as scheduleSummary,
 } from "../schedule.ts";
+import { scrollAnchored } from "./scroll-view.ts";
 import type {
   ActivitySnapshot,
   DebugAction,
@@ -258,25 +259,8 @@ export function renderDebug(
   // Reserve: header + blank + footer-blank + footer + flash-blank + flash = 6
   const rows = stdout.rows || 24;
   const viewRows = Math.max(3, rows - 6);
-  if (out.length <= viewRows) return out.join("\n");
-
-  const innerRows = Math.max(1, viewRows - 1);
-  let offset = 0;
-  if (curEnd >= innerRows) offset = curEnd - innerRows + 1;
-  if (curStart < offset) offset = curStart;
-  offset = Math.max(0, Math.min(offset, out.length - innerRows));
-
-  const visible = out.slice(offset, offset + innerRows);
-  const above = offset;
-  const below = out.length - offset - visible.length;
-  visible.push(
-    DIM +
-      `  ${offset + 1}-${offset + visible.length} of ${out.length}` +
-      (above > 0 ? `  ↑${above}` : "") +
-      (below > 0 ? `  ↓${below}` : "") +
-      RESET,
-  );
-  return visible.join("\n");
+  const windowed = scrollAnchored(out, viewRows, curStart, curEnd);
+  return (windowed ?? out).join("\n");
 }
 
 export function renderActivityChart(

@@ -4,18 +4,18 @@ import {
   DIM,
   FG_BLUE,
   FG_CYAN,
-  FG_GRAY,
   FG_GREEN,
   FG_RED,
   RESET,
   REVERSE,
   ageStr,
   padRight,
-  stripAnsi,
   truncVisible,
   wrapText,
 } from "./ansi.ts";
+import { renderBox } from "./box.ts";
 import { addsCount, itemSuggestion } from "./keyword-items.ts";
+import { scrollFree } from "./scroll-view.ts";
 import type { KeywordItem, RenderCtx } from "./types.ts";
 
 type ColWidths = {
@@ -236,62 +236,30 @@ export function renderKeywordDetail(cols: number, ctx: RenderCtx): string {
           " — tweets in chunk that match this keyword" +
           RESET,
       );
-      const boxWidth = width;
-      // Inner content area is "│ <text> │" → 2 chars of frame + 2 of padding.
-      const innerWidth = Math.max(10, boxWidth - 4);
-      const top = FG_GRAY + "┌" + "─".repeat(boxWidth - 2) + "┐" + RESET;
-      const bot = FG_GRAY + "└" + "─".repeat(boxWidth - 2) + "┘" + RESET;
-      const frame = (content: string): string => {
-        const visible = stripAnsi(content).length;
-        const pad = Math.max(0, innerWidth - visible);
-        return (
-          FG_GRAY +
-          "│ " +
-          RESET +
-          content +
-          " ".repeat(pad) +
-          FG_GRAY +
-          " │" +
-          RESET
-        );
-      };
+      // Box inner area is `width - 4` (2 frame chars + 2 padding).
+      const innerWidth = Math.max(10, width - 4);
       ctx.detailTweets.forEach((t, idx) => {
         if (idx > 0) lines.push("");
         const header =
           `${FG_CYAN}@${t.author}${RESET} ` +
           `${DIM}${ageStr(t.created_at)} · ${t.likes ?? 0}♥ ${t.replies ?? 0}↩${RESET}`;
-        lines.push(top);
-        lines.push(frame(header));
-        lines.push(frame(""));
-        for (const l of wrapText(t.text, innerWidth)) lines.push(frame(l));
-        lines.push(bot);
+        const body = [header, "", ...wrapText(t.text, innerWidth)];
+        for (const l of renderBox(body, width)) lines.push(l);
       });
     }
   } else {
     lines.push(DIM + "(no pending suggestion for this keyword)" + RESET);
   }
 
-  // Window the content using detailScroll. The chrome budget below matches
-  // the debug page so the header + footers + flash line up.
+  // Window the content using detailScroll. The chrome budget matches the
+  // debug page so the header + footers + flash line up.
   const rows = stdout.rows || 24;
   const viewRows = Math.max(3, rows - 6);
-  if (lines.length <= viewRows) {
+  const windowed = scrollFree(lines, viewRows, ctx.detailScroll);
+  if (!windowed) {
     ctx.detailScroll = 0;
     return lines.join("\n");
   }
-  const innerRows = Math.max(1, viewRows - 1);
-  const maxOffset = Math.max(0, lines.length - innerRows);
-  ctx.detailScroll = Math.max(0, Math.min(ctx.detailScroll, maxOffset));
-  const offset = ctx.detailScroll;
-  const visible = lines.slice(offset, offset + innerRows);
-  const above = offset;
-  const below = lines.length - offset - visible.length;
-  visible.push(
-    DIM +
-      `  ${offset + 1}-${offset + visible.length} of ${lines.length}` +
-      (above > 0 ? `  ↑${above}` : "") +
-      (below > 0 ? `  ↓${below}` : "") +
-      RESET,
-  );
-  return visible.join("\n");
+  ctx.detailScroll = windowed.offset;
+  return windowed.lines.join("\n");
 }

@@ -1,16 +1,17 @@
 import { getConfigItems, isSelectable, type ConfigItem } from "./config-items.ts";
+import { stepSelectable } from "./items.ts";
 import { isActivate, isDown, isUp, type ParsedKey } from "./keys.ts";
 import type { TuiHost } from "./types.ts";
 
 export function handleConfigKey(host: TuiHost, key: ParsedKey): void {
   const items = getConfigItems(host);
   if (isDown(key)) {
-    host.configCursor = step(items, host.configCursor, 1);
+    host.configCursor = stepSelectable(items, host.configCursor, 1, isSelectable);
     host.draw();
     return;
   }
   if (isUp(key)) {
-    host.configCursor = step(items, host.configCursor, -1);
+    host.configCursor = stepSelectable(items, host.configCursor, -1, isSelectable);
     host.draw();
     return;
   }
@@ -20,15 +21,6 @@ export function handleConfigKey(host: TuiHost, key: ParsedKey): void {
     void runItem(host, item);
     return;
   }
-}
-
-function step(items: ConfigItem[], from: number, dir: 1 | -1): number {
-  let i = from + dir;
-  while (i >= 0 && i < items.length) {
-    if (isSelectable(items[i]!)) return i;
-    i += dir;
-  }
-  return from;
 }
 
 async function runItem(host: TuiHost, item: ConfigItem): Promise<void> {

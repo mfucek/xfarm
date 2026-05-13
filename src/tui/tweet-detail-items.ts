@@ -10,6 +10,7 @@ import {
   parsePitchBullets,
   wrapText,
 } from "./ansi.ts";
+import { renderBox } from "./box.ts";
 import type { TweetRow } from "../types.ts";
 import type { TuiHost } from "./types.ts";
 
@@ -108,7 +109,7 @@ export function renderTweetDetailItem(
     return [prefix + color + BOLD + it.label + RESET];
   }
   if (it.kind === "text") {
-    const inner = it.bordered ? renderBordered(it.lines, width) : it.lines;
+    const inner = it.bordered ? renderBox(it.lines, width, DIM) : it.lines;
     const color = it.color ?? "";
     return inner.map((l) =>
       prefix + (color && !it.bordered ? color + l + RESET : l),
@@ -141,16 +142,3 @@ export function renderTweetDetailItem(
   return [`${prefix}${marker} ${label}${hint}`];
 }
 
-function renderBordered(lines: string[], width: number): string[] {
-  const inner = Math.max(4, width - 4);
-  const top = `${DIM}┌${"─".repeat(inner + 2)}┐${RESET}`;
-  const bot = `${DIM}└${"─".repeat(inner + 2)}┘${RESET}`;
-  const out = [top];
-  for (const l of lines) {
-    const pad = inner - l.length;
-    const padded = pad > 0 ? l + " ".repeat(pad) : l.slice(0, inner);
-    out.push(`${DIM}│${RESET} ${padded} ${DIM}│${RESET}`);
-  }
-  out.push(bot);
-  return out;
-}
