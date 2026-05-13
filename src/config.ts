@@ -78,11 +78,13 @@ const ProviderSchema = z.enum(["gemini", "codex"]).default("gemini");
 // Optional naumu MCP consultation. When enabled and provider supports
 // function calling (Gemini), the judge can call `ask_naumu` to query the
 // naumu graph before producing its final JSON. Streamable HTTP transport
-// only; the API key is read from process.env.NAUMU_API_KEY.
+// only. Credentials live in this block so they're editable from the TUI;
+// NAUMU_API_KEY / NAUMU_GRAPH_ID env vars override the YAML values.
 const NaumuMcpSchema = z.object({
   enabled: z.boolean().default(false),
   server_url: z.string().default(""),
   graph_id: z.string().default(""),
+  api_key: z.string().default(""),
   max_tool_calls: z.number().int().min(0).max(10).default(3),
 });
 
@@ -95,7 +97,12 @@ const JudgeSchema = z.object({
   model: z.string().default("gemini-2.5-flash"),
   credentials_path: PathStr.nullable().optional(),
   // Codex CLI fields. Used when provider === "codex".
-  codex_model: z.string().default("gpt-5-codex"),
+  // Default: gpt-5.5 — flagship available to ChatGPT Plus via the Codex CLI.
+  // Other Plus-tier slugs as of Codex 0.130: gpt-5.4, gpt-5.4-mini,
+  // gpt-5.3-codex, gpt-5.2. The bare "gpt-5-codex" / "gpt-5.2-codex" slugs
+  // 400 on Plus with "model is not supported when using Codex with a
+  // ChatGPT account" — they need a higher tier.
+  codex_model: z.string().default("gpt-5.5"),
   codex_bin: z.string().default("codex"),
   notify_threshold: z.number().min(0).max(10).default(7.0),
   prompt_path: PathStr,
@@ -103,6 +110,7 @@ const JudgeSchema = z.object({
     enabled: false,
     server_url: "",
     graph_id: "",
+    api_key: "",
     max_tool_calls: 3,
   }),
 });
@@ -180,6 +188,10 @@ function applyEnvOverrides(cfg: Config): Config {
   const naumuGraphEnv = process.env.NAUMU_GRAPH_ID;
   if (naumuGraphEnv && naumuGraphEnv.trim().length > 0) {
     cfg.judge.naumu.graph_id = naumuGraphEnv.trim();
+  }
+  const naumuKeyEnv = process.env.NAUMU_API_KEY;
+  if (naumuKeyEnv && naumuKeyEnv.trim().length > 0) {
+    cfg.judge.naumu.api_key = naumuKeyEnv.trim();
   }
   return cfg;
 }

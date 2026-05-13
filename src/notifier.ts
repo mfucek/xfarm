@@ -14,7 +14,7 @@ async function which(cmd: string): Promise<string | null> {
   });
 }
 
-async function notify(
+export async function notify(
   title: string,
   message: string,
   url: string,
@@ -23,18 +23,18 @@ async function notify(
   const tn = await which("terminal-notifier");
   if (tn) {
     await new Promise<void>((resolve) => {
-      const p = spawn(tn, [
+      const args = [
         "-title",
         title,
         "-message",
         message,
-        "-open",
-        url,
         "-sound",
         sound,
         "-sender",
         "com.apple.Terminal",
-      ]);
+      ];
+      if (url) args.push("-open", url);
+      const p = spawn(tn, args);
       p.on("close", () => resolve());
     });
     return;

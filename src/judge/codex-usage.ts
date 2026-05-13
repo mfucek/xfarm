@@ -1,13 +1,17 @@
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
+import type { Config } from "../config.ts";
+import { queryCodexRateLimits, type CodexRateLimits } from "./codex-rpc.ts";
 
-// Codex CLI emits `account/rateLimits/updated` events on its JSONL stream
-// during/after a request. The payload carries primary (short-window, typically
-// 5h) and secondary (long-window, weekly) buckets. We cache the most recent
-// values so the Config tab can show usage without making a probe call.
+// Codex usage = result of `account/rateLimits/read` on the local
+// `codex app-server`. Cached on disk so the TUI can render immediately on
+// open, with a 60s TTL-driven background refresh. Spawning codex per render
+// would cost ~1s of latency, so we never do that synchronously.
 
 const CACHE_PATH = join(homedir(), ".xfarm", ".cache", "codex-usage.json");
+const TTL_MS = 60_000;
+const ERROR_BACKOFF_MS = 30_000;
 
 export interface CodexBucket {
   used_percent: number;
@@ -17,112 +21,16 @@ export interface CodexBucket {
 
 export interface CodexUsage {
   observed_at: string;
+  plan_type: string | null;
   primary: CodexBucket | null;
   secondary: CodexBucket | null;
+  error: string | null;
 }
 
-/**
- * Inspect one parsed JSONL event from `codex exec --json`. Return the
- * extracted usage record, or null if the event isn't a rate-limit update.
- *
- * Codex names the event `account/rateLimits/updated`. The payload shape may
- * vary across CLI versions, so we accept both snake-case fields directly
- * under the event and nested objects with `primary` / `secondary` keys.
- */
-export function tryExtractUsage(event: unknown): CodexUsage | null {
-  if (!event || typeof event !== "object") return null;
-  const ev = event as Record<string, unknown>;
-  const method = pickString(ev, ["method", "type", "event", "name"]);
-  // Only consider rate-limit events; ignore everything else on the bus.
-  if (method && !/rateLimits|rate_limits/i.test(method)) return null;
+let inflight: Promise<CodexUsage | null> | null = null;
+let lastErrorAt = 0;
 
-  // The actual payload is usually one level deep under params/payload/data.
-  const body =
-    pickObject(ev, ["params", "payload", "data", "value", "result"]) ?? ev;
-
-  const primary = readBucket(body, "primary");
-  const secondary = readBucket(body, "secondary");
-  if (!primary && !secondary) return null;
-
-  return {
-    observed_at: new Date().toISOString(),
-    primary,
-    secondary,
-  };
-}
-
-function readBucket(obj: Record<string, unknown>, label: "primary" | "secondary"): CodexBucket | null {
-  // Variant A: nested object → { primary: { used_percent, window_minutes, reset_at } }
-  const nested = obj[label];
-  if (nested && typeof nested === "object") {
-    const o = nested as Record<string, unknown>;
-    return finalizeBucket(
-      o["used_percent"] ?? o["usedPercent"],
-      o["window_minutes"] ?? o["windowMinutes"],
-      o["reset_at"] ?? o["resetAt"] ?? o["resets_at"],
-    );
-  }
-  // Variant B: flat keys → primary_used_percent, primary_window_minutes, primary_reset_at
-  return finalizeBucket(
-    obj[`${label}_used_percent`],
-    obj[`${label}_window_minutes`],
-    obj[`${label}_reset_at`],
-  );
-}
-
-function finalizeBucket(
-  used: unknown,
-  window: unknown,
-  resetAt: unknown,
-): CodexBucket | null {
-  const u = toNumber(used);
-  if (u == null) return null;
-  return {
-    used_percent: u,
-    window_minutes: toNumber(window) ?? 0,
-    reset_at: typeof resetAt === "string" ? resetAt : null,
-  };
-}
-
-function pickString(o: Record<string, unknown>, keys: string[]): string | null {
-  for (const k of keys) {
-    const v = o[k];
-    if (typeof v === "string") return v;
-  }
-  return null;
-}
-
-function pickObject(o: Record<string, unknown>, keys: string[]): Record<string, unknown> | null {
-  for (const k of keys) {
-    const v = o[k];
-    if (v && typeof v === "object" && !Array.isArray(v)) {
-      return v as Record<string, unknown>;
-    }
-  }
-  return null;
-}
-
-function toNumber(v: unknown): number | null {
-  if (typeof v === "number" && Number.isFinite(v)) return v;
-  if (typeof v === "string" && v.trim() && Number.isFinite(Number(v))) {
-    return Number(v);
-  }
-  return null;
-}
-
-/** Persist the latest observation, merging missing buckets from prior cache. */
-export function saveCodexUsage(usage: CodexUsage): void {
-  const existing = loadCodexUsage();
-  const merged: CodexUsage = {
-    observed_at: usage.observed_at,
-    primary: usage.primary ?? existing?.primary ?? null,
-    secondary: usage.secondary ?? existing?.secondary ?? null,
-  };
-  mkdirSync(dirname(CACHE_PATH), { recursive: true });
-  writeFileSync(CACHE_PATH, JSON.stringify(merged, null, 2));
-}
-
-/** Read the cached observation. Returns null if no judge call has run yet. */
+/** Read the cached observation. Returns null if no refresh has succeeded. */
 export function loadCodexUsage(): CodexUsage | null {
   try {
     const raw = readFileSync(CACHE_PATH, "utf-8");
@@ -130,12 +38,88 @@ export function loadCodexUsage(): CodexUsage | null {
     if (typeof parsed.observed_at !== "string") return null;
     return {
       observed_at: parsed.observed_at,
+      plan_type: parsed.plan_type ?? null,
       primary: parsed.primary ?? null,
       secondary: parsed.secondary ?? null,
+      error: parsed.error ?? null,
     };
   } catch {
     return null;
   }
+}
+
+/**
+ * Trigger a refresh if the cache is stale and we're not already mid-refresh
+ * or in error-backoff. Returns immediately; the caller does NOT await this.
+ * Reads `loadCodexUsage()` on subsequent renders to pick up the fresh data.
+ */
+export function refreshCodexUsageIfStale(cfg: Config): void {
+  if (cfg.judge.provider !== "codex") return;
+  if (inflight) return;
+  const existing = loadCodexUsage();
+  if (existing) {
+    const ageMs = Date.now() - new Date(existing.observed_at).getTime();
+    if (ageMs < TTL_MS) return;
+  }
+  if (lastErrorAt && Date.now() - lastErrorAt < ERROR_BACKOFF_MS) return;
+
+  inflight = (async () => {
+    try {
+      const result = await queryCodexRateLimits(cfg);
+      const usage = toCodexUsage(result);
+      saveCodexUsage(usage);
+      return usage;
+    } catch (e) {
+      lastErrorAt = Date.now();
+      const usage: CodexUsage = {
+        observed_at: new Date().toISOString(),
+        plan_type: null,
+        primary: null,
+        secondary: null,
+        error: (e as Error).message,
+      };
+      // Persist the error too so the UI can show what went wrong; preserve
+      // the last good bucket data if we have any.
+      const prior = loadCodexUsage();
+      saveCodexUsage({
+        ...usage,
+        plan_type: prior?.plan_type ?? null,
+        primary: prior?.primary ?? null,
+        secondary: prior?.secondary ?? null,
+      });
+      return usage;
+    } finally {
+      inflight = null;
+    }
+  })();
+  // Swallow unhandled rejections — the cache file is the only consumer.
+  inflight.catch(() => {});
+}
+
+function toCodexUsage(r: CodexRateLimits): CodexUsage {
+  return {
+    observed_at: new Date(r.observedAt).toISOString(),
+    plan_type: r.planType,
+    primary: bucketFromWindow(r.primary),
+    secondary: bucketFromWindow(r.secondary),
+    error: null,
+  };
+}
+
+function bucketFromWindow(w: CodexRateLimits["primary"]): CodexBucket | null {
+  if (!w) return null;
+  return {
+    used_percent: w.usedPercent,
+    window_minutes: w.windowDurationMins ?? 0,
+    reset_at: w.resetsAt
+      ? new Date(w.resetsAt * 1000).toISOString()
+      : null,
+  };
+}
+
+export function saveCodexUsage(usage: CodexUsage): void {
+  mkdirSync(dirname(CACHE_PATH), { recursive: true });
+  writeFileSync(CACHE_PATH, JSON.stringify(usage, null, 2));
 }
 
 export const CODEX_USAGE_CACHE_PATH = CACHE_PATH;

@@ -2,6 +2,7 @@ import { spawn } from "node:child_process";
 import { resolve, join } from "node:path";
 import { DEFAULT_CONFIG_PATH } from "../config.ts";
 import { logFilePath } from "../lifecycle.ts";
+import { notify } from "../notifier.ts";
 import {
   reloadDaemon,
   startDaemonAction,
@@ -84,6 +85,26 @@ export function getDebugItems(host: TuiHost): DebugItem[] {
           detached: true,
         }).unref();
         host.flash(`opened ${logFilePath()}`, 3000);
+      },
+    },
+    {
+      kind: "action",
+      label: "test system alert",
+      hint: host.cfg.notifier.enabled
+        ? `fire a macOS notification (sound: ${host.cfg.notifier.sound})`
+        : "system alerts are off — firing test anyway",
+      run: async () => {
+        try {
+          await notify(
+            "xfarm: test alert",
+            "If you see this, macOS notifications are working.",
+            "",
+            host.cfg.notifier.sound,
+          );
+          host.flash("fired test alert", 3000);
+        } catch (e) {
+          host.flash(`test alert failed: ${(e as Error).message}`, 5000);
+        }
       },
     },
     { kind: "section", id: "paths" },

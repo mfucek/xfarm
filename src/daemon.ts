@@ -48,6 +48,13 @@ export async function runDaemon(): Promise<void> {
     } catch (e) {
       console.error("[daemon] browser stop failed:", e);
     }
+    if (naumu) {
+      try {
+        await naumu.close();
+      } catch {
+        /* mcp close best-effort */
+      }
+    }
     try {
       db.close();
     } catch {

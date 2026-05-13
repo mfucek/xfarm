@@ -14,6 +14,8 @@ import type { TweetRow } from "./types.ts";
 import {
   ALT_OFF,
   ALT_ON,
+  BRACKETED_PASTE_OFF,
+  BRACKETED_PASTE_ON,
   CLEAR,
   DIM,
   ESC,
@@ -125,7 +127,7 @@ class TUI implements TuiHost {
   }
 
   private setupTerminal(): void {
-    stdout.write(ALT_ON + HIDE_CURSOR + CLEAR);
+    stdout.write(ALT_ON + HIDE_CURSOR + BRACKETED_PASTE_ON + CLEAR);
     if (stdin.isTTY) stdin.setRawMode(true);
     stdin.resume();
     stdin.setEncoding("utf8");
@@ -148,7 +150,7 @@ class TUI implements TuiHost {
     } catch {
       /* may already be reset */
     }
-    stdout.write(SHOW_CURSOR + ALT_OFF);
+    stdout.write(BRACKETED_PASTE_OFF + SHOW_CURSOR + ALT_OFF);
   }
 
   flash(msg: string, ms = 2500): void {
@@ -229,6 +231,34 @@ class TUI implements TuiHost {
   }
 
   private onKey(raw: string): void {
+    // Bracketed paste: the terminal wraps clipboard pastes in
+    // \x1b[200~ ... \x1b[201~. Strip the markers and treat the inside as a
+    // single paste event so the user's API key lands in the input buffer
+    // intact instead of being shredded by parseKey.
+    const PASTE_START = "\x1b[200~";
+    const PASTE_END = "\x1b[201~";
+    if (raw.startsWith(PASTE_START)) {
+      const endIdx = raw.indexOf(PASTE_END, PASTE_START.length);
+      if (endIdx >= 0) {
+        this.onPaste(raw.slice(PASTE_START.length, endIdx));
+        const tail = raw.slice(endIdx + PASTE_END.length);
+        if (tail.length > 0) this.onKey(tail);
+      } else {
+        // Open-ended paste — terminal split the chunk. Best effort: take what
+        // we have. A trailing partial \x1b[201~ in the next chunk will then
+        // hit parseKey and be ignored as "other"; acceptable for API keys.
+        this.onPaste(raw.slice(PASTE_START.length));
+      }
+      return;
+    }
+    // Fallback for terminals that don't support bracketed paste: any chunk
+    // longer than 1 char with no escape sequences inside is almost certainly
+    // a paste (single keypresses are either 1 char or start with \x1b).
+    if (raw.length > 1 && !raw.includes("\x1b")) {
+      this.onPaste(raw);
+      return;
+    }
+
     const key = parseKey(raw);
 
     if (this.inputMode) {
@@ -283,6 +313,20 @@ class TUI implements TuiHost {
     else if (this.page === "keywords") handleKeywordsKey(this, key);
     else if (this.page === "config") handleConfigKey(this, key);
     else handleDebugKey(this, key);
+  }
+
+  private onPaste(text: string): void {
+    // Drop control chars (newlines, tabs, NUL, …) — pasting a key with a
+    // trailing newline shouldn't commit the input nor leave a literal LF in
+    // the buffer.
+    const clean = text.replace(/[\x00-\x1f\x7f]+/g, "");
+    if (!clean) return;
+    if (this.inputMode) {
+      this.inputBuffer += clean;
+      this.draw();
+    }
+    // Outside input mode: ignore. Page handlers expect one key at a time;
+    // dumping a paste into them would just produce noise.
   }
 
   private onInputKey(key: ParsedKey): void {

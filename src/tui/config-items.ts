@@ -134,7 +134,8 @@ export function getConfigItems(host: TuiHost): ConfigItem[] {
       id: "codex_model",
       label: "model",
       value: cfg.judge.codex_model,
-      hint: "Codex model name (e.g. gpt-5-codex, gpt-5.1-codex)",
+      hint:
+        "Plus tier: gpt-5.5 (default, flagship), gpt-5.4, gpt-5.4-mini, gpt-5.3-codex, gpt-5.2. Run `codex debug models` for the full list.",
       edit: (h) =>
         editConfigField(h, "Codex model: ", (v) => ({
           judge: { codex_model: v },
@@ -217,6 +218,88 @@ export function getConfigItems(host: TuiHost): ConfigItem[] {
       patchConfigFile({ judge: { notify_threshold: num } });
       h.reloadConfig();
       return `threshold → ${num.toFixed(1)}`;
+    },
+  });
+
+  items.push({ kind: "header", id: "h-notifier", label: "Notifications" });
+  items.push({
+    kind: "toggle",
+    id: "notifier_enabled",
+    label: "system alerts",
+    value: cfg.notifier.enabled ? "on" : "off",
+    hint: "macOS desktop notifications for tweets scoring ≥ notify threshold.",
+    run: async (h) => {
+      const next = !cfg.notifier.enabled;
+      patchConfigFile({ notifier: { enabled: next } });
+      h.reloadConfig();
+      return `system alerts → ${next ? "on" : "off"} · restart daemon to apply`;
+    },
+  });
+
+  items.push({ kind: "header", id: "h-naumu", label: "Naumu MCP (judge tool)" });
+  items.push({
+    kind: "toggle",
+    id: "naumu_enabled",
+    label: "enabled",
+    value: cfg.judge.naumu.enabled ? "on" : "off",
+    hint:
+      "When on (and provider=gemini), the judge can call ask_naumu against the graph before producing pitch_bullets.",
+    run: async (h) => {
+      const next = !cfg.judge.naumu.enabled;
+      patchConfigFile({ judge: { naumu: { enabled: next } } });
+      h.reloadConfig();
+      return `naumu → ${next ? "on" : "off"} · restart daemon to apply`;
+    },
+  });
+  items.push({
+    kind: "field",
+    id: "naumu_server_url",
+    label: "server url",
+    value: cfg.judge.naumu.server_url || "(unset)",
+    hint: "Streamable HTTP endpoint of the naumu MCP server.",
+    edit: (h) =>
+      editConfigField(h, "Naumu MCP server URL: ", (v) => ({
+        judge: { naumu: { server_url: v } },
+      })),
+  });
+  items.push({
+    kind: "field",
+    id: "naumu_graph_id",
+    label: "graph id",
+    value: cfg.judge.naumu.graph_id || "(unset)",
+    hint: "Naumu graph UUID. NAUMU_GRAPH_ID env var overrides this.",
+    edit: (h) =>
+      editConfigField(h, "Naumu graph UUID: ", (v) => ({
+        judge: { naumu: { graph_id: v } },
+      })),
+  });
+  items.push({
+    kind: "field",
+    id: "naumu_api_key",
+    label: "api key",
+    value: mask(cfg.judge.naumu.api_key),
+    hint: "Bearer token for the MCP endpoint. NAUMU_API_KEY env var overrides this.",
+    edit: (h) =>
+      editConfigField(h, "Naumu API key: ", (v) => ({
+        judge: { naumu: { api_key: v } },
+      })),
+  });
+  items.push({
+    kind: "field",
+    id: "naumu_max_tool_calls",
+    label: "max tool calls",
+    value: String(cfg.judge.naumu.max_tool_calls),
+    hint: "Hard cap on ask_naumu invocations per judge run (0–10).",
+    edit: async (h) => {
+      const v = await h.promptInput("Max tool calls per judge run (0–10): ");
+      if (v == null) return null;
+      const num = Number(v);
+      if (!Number.isInteger(num) || num < 0 || num > 10) {
+        return `invalid: '${v}' (must be integer 0–10)`;
+      }
+      patchConfigFile({ judge: { naumu: { max_tool_calls: num } } });
+      h.reloadConfig();
+      return `max tool calls → ${num}`;
     },
   });
 

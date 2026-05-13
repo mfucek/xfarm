@@ -1,5 +1,9 @@
 import { stdout } from "node:process";
-import { loadCodexUsage, type CodexBucket } from "../judge/codex-usage.ts";
+import {
+  loadCodexUsage,
+  refreshCodexUsageIfStale,
+  type CodexBucket,
+} from "../judge/codex-usage.ts";
 import {
   BOLD,
   DIM,
@@ -56,7 +60,7 @@ export function renderConfig(cols: number, host: TuiHost): string {
     } else if (it.kind === "status") {
       for (const line of renderStatus(host)) out.push(prefix + line);
     } else if (it.kind === "codex_usage") {
-      for (const line of renderCodexUsage(cols)) out.push(prefix + line);
+      for (const line of renderCodexUsage(cols, host)) out.push(prefix + line);
     } else {
       const marker = isSel ? `${FG_CYAN}›${RESET}` : " ";
       const label = isSel
@@ -102,21 +106,29 @@ function valueColorFor(v: string): string {
   return "";
 }
 
-function renderCodexUsage(cols: number): string[] {
+function renderCodexUsage(cols: number, host: TuiHost): string[] {
+  // Kick off a background refresh if the cache is stale. Doesn't block —
+  // the fresh data shows up on the next tick (1s) once codex app-server
+  // responds.
+  refreshCodexUsageIfStale(host.cfg);
+
   const usage = loadCodexUsage();
   if (!usage) {
-    return [
-      DIM +
-        "(no data yet — runs after the first judge call; check back once the daemon has scored something)" +
-        RESET,
-    ];
+    return [DIM + "(querying codex app-server…)" + RESET];
   }
   const out: string[] = [];
   out.push(renderBucket("primary", usage.primary, cols));
   out.push(renderBucket("secondary", usage.secondary, cols));
   const obs = new Date(usage.observed_at);
-  const ageMin = Math.max(0, Math.floor((Date.now() - obs.getTime()) / 60000));
-  out.push(DIM + `observed ${ageMin}m ago` + RESET);
+  const ageSec = Math.max(0, Math.floor((Date.now() - obs.getTime()) / 1000));
+  const ageStr = ageSec < 60 ? `${ageSec}s` : `${Math.floor(ageSec / 60)}m`;
+  const plan = usage.plan_type
+    ? ` · plan: ${BOLD}${usage.plan_type}${RESET}${DIM}`
+    : "";
+  out.push(DIM + `observed ${ageStr} ago${plan}` + RESET);
+  if (usage.error) {
+    out.push(FG_RED + `refresh failed: ${usage.error.slice(0, cols - 20)}` + RESET);
+  }
   return out;
 }
 

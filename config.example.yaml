@@ -62,13 +62,29 @@ judge:
   # credentials_path: ~/.xfarm/vertex-sa.json
 
   # --- codex settings (used when provider=codex) ---
-  # Codex model name. Update as OpenAI ships new ones.
-  codex_model: "gpt-5-codex"
+  # Codex model name. ChatGPT Plus supports gpt-5.5 (default, flagship),
+  # gpt-5.4, gpt-5.4-mini, gpt-5.3-codex, gpt-5.2. Bare gpt-5-codex /
+  # gpt-5.2-codex slugs need a higher tier than Plus. Run
+  # `codex debug models` to see what your account actually has access to.
+  codex_model: "gpt-5.5"
   # Codex binary on PATH. Run `codex login` once to authenticate with ChatGPT.
   codex_bin: "codex"
 
   notify_threshold: 7.0
   prompt_path: ./prompts/judge.md
+
+  # Optional agentic harness: when enabled, the judge can ask the live naumu
+  # knowledge graph directed questions via MCP before producing its angle and
+  # pitch_bullets. Only effective with provider=gemini; under provider=codex
+  # the judge silently falls back to single-shot.
+  # All fields are editable from the TUI's Config tab. NAUMU_API_KEY and
+  # NAUMU_GRAPH_ID env vars (if set) override the values below.
+  naumu:
+    enabled: false
+    server_url: ""        # Streamable HTTP endpoint of the naumu MCP server
+    graph_id: ""          # naumu graph UUID to consult
+    api_key: ""           # bearer token for the MCP endpoint
+    max_tool_calls: 3     # hard cap per judge run
 
 notifier:
   enabled: true

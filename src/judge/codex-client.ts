@@ -3,7 +3,6 @@ import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Config } from "../config.ts";
-import { saveCodexUsage, tryExtractUsage } from "./codex-usage.ts";
 import type { JsonSchema, LlmClient } from "./llm.ts";
 
 const JSON_INSTRUCTION =
@@ -14,9 +13,10 @@ const JSON_INSTRUCTION =
  * Run a prompt through the `codex exec` CLI. This is how we tap the user's
  * ChatGPT/Codex subscription instead of paying per-token via the OpenAI API.
  *
- * We invoke `codex exec` with --output-last-message to get just the final
- * assistant message in a file (avoiding the noisy event stream on stdout).
- * The prompt instructs strict-JSON output; we then JSON.parse the file.
+ * --output-last-message writes just the final assistant message to a file,
+ * so we don't need to parse the noisy event stream from stdout. Rate-limit
+ * info is read separately via `account/rateLimits/read` over app-server
+ * (see codex-rpc.ts) — that data does NOT flow through `exec` events.
  */
 export class CodexClient implements LlmClient {
   constructor(private cfg: Config) {}
@@ -45,7 +45,6 @@ export class CodexClient implements LlmClient {
       const args = [
         "exec",
         "--skip-git-repo-check",
-        "--json",
         "--model",
         this.cfg.judge.codex_model,
         "--output-last-message",
@@ -57,20 +56,9 @@ export class CodexClient implements LlmClient {
       });
       const stderr: Buffer[] = [];
       child.stderr.on("data", (d: Buffer) => stderr.push(d));
-      // Parse each JSONL line on stdout; capture rate-limit events for the
-      // Config tab. We don't depend on stdout for the response itself —
-      // --output-last-message handles that.
-      let pending = "";
-      child.stdout.on("data", (chunk: Buffer) => {
-        pending += chunk.toString("utf-8");
-        let nl = pending.indexOf("\n");
-        while (nl >= 0) {
-          const line = pending.slice(0, nl).trim();
-          pending = pending.slice(nl + 1);
-          if (line) handleEventLine(line);
-          nl = pending.indexOf("\n");
-        }
-      });
+      // Drain stdout so the pipe doesn't fill up; we don't need the events
+      // because --output-last-message already gives us a clean transcript.
+      child.stdout.on("data", () => {});
       child.on("error", (err) => {
         if ((err as NodeJS.ErrnoException).code === "ENOENT") {
           reject(
@@ -114,25 +102,4 @@ export class CodexClient implements LlmClient {
 function stripFences(s: string): string {
   const m = s.match(/```(?:json)?\s*([\s\S]*?)\s*```/);
   return m && m[1] ? m[1] : s;
-}
-
-// Each JSONL line from `codex exec --json` is an event. We only care about
-// rate-limit updates; anything else (turn started/completed, item deltas) is
-// noise for our purposes. Failures here are swallowed — usage telemetry is
-// strictly a nice-to-have.
-function handleEventLine(line: string): void {
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(line);
-  } catch {
-    return;
-  }
-  const usage = tryExtractUsage(parsed);
-  if (usage) {
-    try {
-      saveCodexUsage(usage);
-    } catch {
-      /* cache write best-effort */
-    }
-  }
 }

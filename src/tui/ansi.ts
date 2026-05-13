@@ -3,6 +3,11 @@
 export const ESC = "\x1b[";
 export const ALT_ON = `${ESC}?1049h`;
 export const ALT_OFF = `${ESC}?1049l`;
+// Bracketed paste: terminal wraps clipboard pastes in \x1b[200~ ... \x1b[201~
+// so we can distinguish "user typed this" from "user pasted this" and treat
+// pastes as a single edit instead of one-key-at-a-time.
+export const BRACKETED_PASTE_ON = `${ESC}?2004h`;
+export const BRACKETED_PASTE_OFF = `${ESC}?2004l`;
 export const CLEAR = `${ESC}2J${ESC}H`;
 export const HOME = `${ESC}H`;
 export const HIDE_CURSOR = `${ESC}?25l`;
