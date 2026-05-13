@@ -30,21 +30,19 @@ program
   .command("stop")
   .description("Stop the background daemon if running")
   .action(async () => {
-    const { stopDaemon, isDaemonRunning } = await import("./lifecycle.ts");
-    const pid = stopDaemon();
-    if (pid == null) {
+    const { stopAndWait } = await import("./lifecycle.ts");
+    const r = await stopAndWait(5000);
+    if (r.state === "not_running") {
       console.log("daemon not running.");
-      return;
+    } else if (r.state === "stopped") {
+      console.log(chalk.green(`daemon stopped (PID ${r.pid}).`));
+    } else {
+      console.log(
+        chalk.yellow(
+          `PID ${r.pid} still alive after 5s; check \`~/.xfarm/daemon.log\`.`,
+        ),
+      );
     }
-    console.log(`sent SIGTERM to PID ${pid}. waiting…`);
-    for (let i = 0; i < 20; i++) {
-      await new Promise((r) => setTimeout(r, 250));
-      if (!isDaemonRunning()) {
-        console.log(chalk.green("daemon stopped."));
-        return;
-      }
-    }
-    console.log(chalk.yellow("still alive after 5s; check `~/.xfarm/daemon.log`."));
   });
 
 program

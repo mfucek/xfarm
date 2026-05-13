@@ -128,3 +128,51 @@ export async function waitForDaemonRunning(
   }
   return false;
 }
+
+// ---------- compound operations ----------
+// The primitives above are pure I/O. The helpers below are the orchestrated
+// sequences both the CLI and the TUI need: send the signal AND wait for the
+// state change. Keep them here so neither caller reimplements the loop.
+
+export type StopResult =
+  | { state: "not_running" }
+  | { state: "stopped"; pid: number }
+  | { state: "timeout"; pid: number };
+
+/** SIGTERM the daemon and wait for it to actually exit. */
+export async function stopAndWait(timeoutMs = 8000): Promise<StopResult> {
+  const pid = stopDaemon();
+  if (pid == null) return { state: "not_running" };
+  const stopped = await waitForDaemonStopped(timeoutMs);
+  return stopped ? { state: "stopped", pid } : { state: "timeout", pid };
+}
+
+export type StartResult =
+  | { state: "already_running"; pid: number }
+  | { state: "started"; pid: number }
+  | { state: "no_pidfile"; pid: number };
+
+/** Spawn the daemon and wait for its PID file to appear. */
+export async function startAndWait(timeoutMs = 8000): Promise<StartResult> {
+  if (isDaemonRunning()) {
+    const pid = readPid();
+    return { state: "already_running", pid: pid ?? 0 };
+  }
+  const pid = startDaemonBackground();
+  const up = await waitForDaemonRunning(timeoutMs);
+  return up ? { state: "started", pid } : { state: "no_pidfile", pid };
+}
+
+export type RestartResult =
+  | { state: "stop_timeout"; pid: number }
+  | { state: "restarted"; oldPid: number | null; newPid: number; up: boolean };
+
+/** Stop (if running), then start. Reports whether each phase completed. */
+export async function restartAndWait(timeoutMs = 8000): Promise<RestartResult> {
+  const stop = await stopAndWait(timeoutMs);
+  if (stop.state === "timeout") return { state: "stop_timeout", pid: stop.pid };
+  const oldPid = stop.state === "stopped" ? stop.pid : null;
+  const newPid = startDaemonBackground();
+  const up = await waitForDaemonRunning(timeoutMs);
+  return { state: "restarted", oldPid, newPid, up };
+}

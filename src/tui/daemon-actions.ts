@@ -1,37 +1,21 @@
-import {
-  isDaemonRunning,
-  startDaemonBackground,
-  stopDaemon,
-  waitForDaemonRunning,
-  waitForDaemonStopped,
-} from "../lifecycle.ts";
+import { restartAndWait, startAndWait, stopAndWait } from "../lifecycle.ts";
 import type { TuiHost } from "./types.ts";
 
-export async function reloadDaemon(host: TuiHost): Promise<void> {
+// Wrap a daemon operation with the standard busy/flash/draw UX. Errors flash
+// instead of bubbling so a transient failure doesn't crash the TUI loop.
+async function withBusy(
+  host: TuiHost,
+  spinnerMsg: string,
+  body: () => Promise<string>,
+): Promise<void> {
   host.busy = true;
-  host.flash("reloading daemon…", 10000);
+  host.flash(spinnerMsg, 10000);
   host.draw();
   try {
-    const pid = stopDaemon();
-    if (pid != null) {
-      const stopped = await waitForDaemonStopped(8000);
-      if (!stopped) {
-        host.flash(`daemon ${pid} didn't exit in 8s — aborting reload`, 5000);
-        return;
-      }
-    }
-    const newPid = startDaemonBackground();
-    const up = await waitForDaemonRunning(8000);
-    if (up) {
-      host.flash(`daemon reloaded (PID ${newPid})`, 3000);
-    } else {
-      host.flash(
-        `spawned PID ${newPid} but it never wrote a PID file — check the log`,
-        5000,
-      );
-    }
+    const final = await body();
+    host.flash(final, 4000);
   } catch (e) {
-    host.flash(`reload failed: ${(e as Error).message}`, 5000);
+    host.flash(`failed: ${(e as Error).message}`, 5000);
   } finally {
     host.busy = false;
     host.refresh();
@@ -39,48 +23,33 @@ export async function reloadDaemon(host: TuiHost): Promise<void> {
   }
 }
 
-export async function stopDaemonAction(host: TuiHost): Promise<void> {
-  host.busy = true;
-  host.flash("stopping daemon…", 8000);
-  host.draw();
-  try {
-    const pid = stopDaemon();
-    if (pid == null) {
-      host.flash("daemon was not running", 3000);
-      return;
+export function reloadDaemon(host: TuiHost): Promise<void> {
+  return withBusy(host, "reloading daemon…", async () => {
+    const r = await restartAndWait(8000);
+    if (r.state === "stop_timeout") {
+      return `daemon ${r.pid} didn't exit in 8s — aborting reload`;
     }
-    const stopped = await waitForDaemonStopped(8000);
-    host.flash(
-      stopped ? `daemon ${pid} stopped` : `daemon ${pid} unresponsive`,
-      4000,
-    );
-  } finally {
-    host.busy = false;
-    host.refresh();
-    host.draw();
-  }
+    if (!r.up) {
+      return `spawned PID ${r.newPid} but it never wrote a PID file — check the log`;
+    }
+    return `daemon reloaded (PID ${r.newPid})`;
+  });
 }
 
-export async function startDaemonAction(host: TuiHost): Promise<void> {
-  if (isDaemonRunning()) {
-    host.flash("daemon is already running", 3000);
-    return;
-  }
-  host.busy = true;
-  host.flash("starting daemon…", 8000);
-  host.draw();
-  try {
-    const pid = startDaemonBackground();
-    const up = await waitForDaemonRunning(8000);
-    host.flash(
-      up
-        ? `daemon started (PID ${pid})`
-        : `spawned PID ${pid} but never wrote a PID file — check the log`,
-      4000,
-    );
-  } finally {
-    host.busy = false;
-    host.refresh();
-    host.draw();
-  }
+export function stopDaemonAction(host: TuiHost): Promise<void> {
+  return withBusy(host, "stopping daemon…", async () => {
+    const r = await stopAndWait(8000);
+    if (r.state === "not_running") return "daemon was not running";
+    if (r.state === "stopped") return `daemon ${r.pid} stopped`;
+    return `daemon ${r.pid} unresponsive`;
+  });
+}
+
+export function startDaemonAction(host: TuiHost): Promise<void> {
+  return withBusy(host, "starting daemon…", async () => {
+    const r = await startAndWait(8000);
+    if (r.state === "already_running") return "daemon is already running";
+    if (r.state === "started") return `daemon started (PID ${r.pid})`;
+    return `spawned PID ${r.pid} but never wrote a PID file — check the log`;
+  });
 }
