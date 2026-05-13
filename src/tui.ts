@@ -52,6 +52,7 @@ import { getDebugItems, handleDebugKey } from "./tui/keys-debug.ts";
 import { handleConfigKey } from "./tui/keys-config.ts";
 import { renderConfig } from "./tui/render-config.ts";
 import { handleTweetDetailKey } from "./tui/keys-tweet-detail.ts";
+import { isChar, parseKey, type ParsedKey } from "./tui/keys.ts";
 
 const ACTIVITY_WINDOW_SEC = 3600;
 const ACTIVITY_BUCKETS = 60;
@@ -87,6 +88,7 @@ class TUI implements TuiHost {
   debugCursor = 0;
   configCursor = 1; // start past the first header so j/k feels right
   tweetDetailCursor = 0;
+  tweetDetailCopiedAt: number | null = null;
   setupStatus: SetupStatus | null = null;
 
   private inputResolver: ((value: string | null) => void) | null = null;
@@ -226,7 +228,9 @@ class TUI implements TuiHost {
     });
   }
 
-  private onKey(key: string): void {
+  private onKey(raw: string): void {
+    const key = parseKey(raw);
+
     if (this.inputMode) {
       this.onInputKey(key);
       return;
@@ -242,11 +246,11 @@ class TUI implements TuiHost {
       return;
     }
 
-    if (key === "q" || key === "\x03") {
+    if (key.kind === "ctrl-c" || isChar("q")(key)) {
       this.stopFlag = true;
       return;
     }
-    if (key === "\t" || key === "\x1b[C") {
+    if (key.kind === "tab" || key.kind === "right") {
       const next = (PAGES.indexOf(this.page) + 1) % PAGES.length;
       this.page = PAGES[next] ?? "candidates";
       this.selected = 0;
@@ -254,7 +258,7 @@ class TUI implements TuiHost {
       this.draw();
       return;
     }
-    if (key === "\x1b[D") {
+    if (key.kind === "left") {
       const idx = PAGES.indexOf(this.page);
       const prev = (idx - 1 + PAGES.length) % PAGES.length;
       this.page = PAGES[prev] ?? "candidates";
@@ -263,8 +267,9 @@ class TUI implements TuiHost {
       this.draw();
       return;
     }
-    if (key === "1" || key === "2" || key === "3" || key === "4") {
-      const target = PAGES[Number(key) - 1];
+    if (isChar("1", "2", "3", "4")(key)) {
+      const target =
+        key.kind === "char" ? PAGES[Number(key.char) - 1] : undefined;
       if (target) {
         this.page = target;
         this.selected = 0;
@@ -280,25 +285,25 @@ class TUI implements TuiHost {
     else handleDebugKey(this, key);
   }
 
-  private onInputKey(key: string): void {
-    if (key === "\r" || key === "\n") {
+  private onInputKey(key: ParsedKey): void {
+    if (key.kind === "enter") {
       const r = this.inputResolver;
       const v = this.inputBuffer.trim();
       if (r) r(v.length > 0 ? v : null);
       return;
     }
-    if (key === "\x1b" || key === "\x03") {
+    if (key.kind === "escape" || key.kind === "ctrl-c") {
       const r = this.inputResolver;
       if (r) r(null);
       return;
     }
-    if (key === "\x7f" || key === "\b") {
+    if (key.kind === "backspace") {
       this.inputBuffer = this.inputBuffer.slice(0, -1);
       this.draw();
       return;
     }
-    if (key.length === 1 && key >= " " && key !== "\x7f") {
-      this.inputBuffer += key;
+    if (key.kind === "char") {
+      this.inputBuffer += key.char;
       this.draw();
     }
   }

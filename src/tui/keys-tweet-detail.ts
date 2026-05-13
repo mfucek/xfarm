@@ -1,33 +1,40 @@
 import { spawn } from "node:child_process";
 import { stdout } from "node:process";
 import {
+  isActivate,
+  isClose,
+  isDown,
+  isLeft,
+  isRight,
+  isUp,
+  type ParsedKey,
+} from "./keys.ts";
+import {
   getTweetDetailItems,
   type TweetDetailItem,
 } from "./tweet-detail-items.ts";
 import type { TuiHost } from "./types.ts";
 
-export function handleTweetDetailKey(host: TuiHost, key: string): void {
+export function handleTweetDetailKey(host: TuiHost, key: ParsedKey): void {
   const r = host.detailRow;
   if (!r) return;
 
-  // ctrl-c always quits the TUI
-  if (key === "\x03") {
+  if (key.kind === "ctrl-c") {
     host.requestStop();
     return;
   }
-  // esc or q closes the detail view
-  if (key === "\x1b" || key === "q") {
+  if (isClose(key)) {
     host.detailRow = null;
     host.draw();
     return;
   }
 
-  // ←/→ paginate to prev/next row in the candidates list
-  if (key === "\x1b[D" || key === "h") {
+  // ←/→ or h/l paginates to prev/next row in the candidates list.
+  if (isLeft(key)) {
     navigateRow(host, -1);
     return;
   }
-  if (key === "\x1b[C" || key === "l") {
+  if (isRight(key)) {
     navigateRow(host, 1);
     return;
   }
@@ -36,23 +43,25 @@ export function handleTweetDetailKey(host: TuiHost, key: string): void {
   const width = Math.max(20, Math.min(100, cols - 4));
   const items = getTweetDetailItems(host, r, width);
 
-  if (key === "j" || key === "\x1b[B") {
+  if (isDown(key)) {
     host.tweetDetailCursor = Math.min(host.tweetDetailCursor + 1, items.length - 1);
+    host.tweetDetailCopiedAt = null;
     host.draw();
     return;
   }
-  if (key === "k" || key === "\x1b[A") {
+  if (isUp(key)) {
     host.tweetDetailCursor = Math.max(0, host.tweetDetailCursor - 1);
+    host.tweetDetailCopiedAt = null;
     host.draw();
     return;
   }
-  if (key === "\r" || key === "\n" || key === " ") {
+  if (isActivate(key)) {
     const item = items[host.tweetDetailCursor];
     if (!item) return;
     if (item.kind === "action") {
       void runDetailAction(host, item);
     } else if (item.kind === "bullets") {
-      copyToClipboard(host, item.raw.join("\n"), "reply ideas");
+      copyToClipboard(host, item.raw.join("\n"));
     }
     return;
   }
@@ -66,16 +75,17 @@ function navigateRow(host: TuiHost, delta: 1 | -1): void {
   host.selected = next;
   host.detailRow = combined[next] ?? null;
   host.tweetDetailCursor = 0;
+  host.tweetDetailCopiedAt = null;
   host.draw();
 }
 
-function copyToClipboard(host: TuiHost, text: string, label: string): void {
+function copyToClipboard(host: TuiHost, text: string): void {
   try {
     const child = spawn("pbcopy", [], { stdio: ["pipe", "ignore", "ignore"] });
     child.stdin.end(text);
     child.on("error", (e) => host.flash(`copy failed: ${e.message}`, 4000));
     child.on("close", (code) => {
-      if (code === 0) host.flash(`copied ${label} to clipboard`);
+      if (code === 0) host.tweetDetailCopiedAt = Date.now();
       else host.flash(`pbcopy exited ${code}`, 4000);
       host.draw();
     });

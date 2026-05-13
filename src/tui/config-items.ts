@@ -9,6 +9,7 @@ import type { TuiHost } from "./types.ts";
 export type ConfigItem =
   | { kind: "header"; id: string; label: string }
   | { kind: "status" }
+  | { kind: "codex_usage" }
   | {
       kind: "field";
       id: string;
@@ -150,6 +151,8 @@ export function getConfigItems(host: TuiHost): ConfigItem[] {
           judge: { codex_bin: v },
         })),
     });
+    items.push({ kind: "header", id: "h-usage", label: "Codex usage" });
+    items.push({ kind: "codex_usage" });
   } else {
     items.push({
       kind: "field",
@@ -220,9 +223,8 @@ export function getConfigItems(host: TuiHost): ConfigItem[] {
   return items;
 }
 
-/** Step the cursor onto the next item; headers and status are skippable in
- * the sense that Enter does nothing — but the cursor still lands on them so
- * the user can read the section. */
+/** Cursor stops on rows that have an action; headers, status, and the usage
+ * widget are read-only and skipped during j/k navigation. */
 export function isSelectable(it: ConfigItem): boolean {
   return it.kind === "field" || it.kind === "toggle";
 }

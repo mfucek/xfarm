@@ -7,6 +7,13 @@ import {
   startDaemonAction,
   stopDaemonAction,
 } from "./daemon-actions.ts";
+import {
+  isActivate,
+  isChar,
+  isDown,
+  isUp,
+  type ParsedKey,
+} from "./keys.ts";
 import type { DebugAction, DebugItem, TuiHost } from "./types.ts";
 
 export function getDebugItems(host: TuiHost): DebugItem[] {
@@ -86,28 +93,28 @@ export function getDebugItems(host: TuiHost): DebugItem[] {
   ];
 }
 
-export function handleDebugKey(host: TuiHost, key: string): void {
+export function handleDebugKey(host: TuiHost, key: ParsedKey): void {
   if (host.busy) return;
   const items = getDebugItems(host);
-  if (key === "j" || key === "\x1b[B") {
+  if (isDown(key)) {
     host.debugCursor = Math.min(host.debugCursor + 1, items.length - 1);
     host.draw();
     return;
   }
-  if (key === "k" || key === "\x1b[A") {
+  if (isUp(key)) {
     host.debugCursor = Math.max(0, host.debugCursor - 1);
     host.draw();
     return;
   }
-  if (key === "\r" || key === "\n" || key === " ") {
+  if (isActivate(key)) {
     const item = items[host.debugCursor];
     if (item && item.kind === "action") void runDebugAction(host, item);
     return;
   }
   // Legacy single-key shortcuts (still work regardless of cursor position).
-  if (key === "R") void reloadDaemon(host);
-  else if (key === "S") void stopDaemonAction(host);
-  else if (key === "B") void startDaemonAction(host);
+  if (isChar("R")(key)) void reloadDaemon(host);
+  else if (isChar("S")(key)) void stopDaemonAction(host);
+  else if (isChar("B")(key)) void startDaemonAction(host);
 }
 
 async function runDebugAction(host: TuiHost, action: DebugAction): Promise<void> {

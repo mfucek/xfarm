@@ -69,6 +69,10 @@ export interface RenderCtx {
   debugCursor: number;
   configCursor: number;
   tweetDetailCursor: number;
+  /** Timestamp of last successful copy from the tweet-detail bullets. The
+   * bullets section renders a "✓ copied" notice while this is recent; null
+   * means show the default "Enter to copy" hint instead. */
+  tweetDetailCopiedAt: number | null;
   setupStatus: SetupStatus | null;
 }
 

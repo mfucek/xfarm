@@ -1,8 +1,25 @@
+import {
+  isActivate,
+  isChar,
+  isClose,
+  isDown,
+  isLeft,
+  isRight,
+  isUp,
+  type ParsedKey,
+} from "./keys.ts";
 import { applySuggestion, itemSuggestion } from "./keyword-items.ts";
 import type { KeywordItem, TuiHost } from "./types.ts";
 
-export function handleKeywordsKey(host: TuiHost, key: string): void {
-  if (key === "j" || key === "\x1b[B") {
+const isAccept = isChar("a", "y");
+const isReject = isChar("r", "n");
+const isAcceptAll = isChar("A", "Y");
+const isRejectAll = isChar("R", "N");
+const isDelete = isChar("d");
+const isAdd = isChar("+");
+
+export function handleKeywordsKey(host: TuiHost, key: ParsedKey): void {
+  if (isDown(key)) {
     host.selected = Math.min(
       host.selected + 1,
       Math.max(0, host.keywordItems.length - 1),
@@ -10,43 +27,43 @@ export function handleKeywordsKey(host: TuiHost, key: string): void {
     host.draw();
     return;
   }
-  if (key === "k" || key === "\x1b[A") {
+  if (isUp(key)) {
     host.selected = Math.max(host.selected - 1, 0);
     host.draw();
     return;
   }
-  if (key === "\r" || key === "\n" || key === " ") {
+  if (isActivate(key)) {
     const it = host.keywordItems[host.selected];
     if (it) openKeywordDetail(host, it);
     return;
   }
-  if (key === "+") {
+  if (isAdd(key)) {
     void handleAddKeyword(host);
     return;
   }
-  if (key === "a" || key === "y") {
+  if (isAccept(key)) {
     // Accept the suggestion on the highlighted row. If the row is a plain
-    // keyword with no pending suggestion, fall back to "add new" so 'a'
-    // stays useful row-by-row.
+    // keyword with no pending suggestion, fall back to "add new" so 'a' stays
+    // useful row-by-row.
     const it = host.keywordItems[host.selected];
     if (!it) return;
     if (itemSuggestion(it)) resolveSelected(host, "accepted");
     else void handleAddKeyword(host);
     return;
   }
-  if (key === "r" || key === "n") {
+  if (isReject(key)) {
     resolveSelected(host, "rejected");
     return;
   }
-  if (key === "A" || key === "Y") {
+  if (isAcceptAll(key)) {
     resolveAll(host, "accepted");
     return;
   }
-  if (key === "R" || key === "N") {
+  if (isRejectAll(key)) {
     resolveAll(host, "rejected");
     return;
   }
-  if (key === "d") {
+  if (isDelete(key)) {
     const it = host.keywordItems[host.selected];
     if (!it || it.kind !== "keyword") return;
     const removed = host.db.removeKeyword(it.query);
@@ -60,48 +77,48 @@ export function handleKeywordsKey(host: TuiHost, key: string): void {
   }
 }
 
-export function handleKeywordDetailKey(host: TuiHost, key: string): void {
-  if (key === "\x03") {
+export function handleKeywordDetailKey(host: TuiHost, key: ParsedKey): void {
+  if (key.kind === "ctrl-c") {
     host.requestStop();
     return;
   }
-  if (key === "\x1b[D" || key === "h") {
+  if (isLeft(key)) {
     navigateDetail(host, -1);
     return;
   }
-  if (key === "\x1b[C" || key === "l") {
+  if (isRight(key)) {
     navigateDetail(host, 1);
     return;
   }
-  if (key === "\x1b[A" || key === "k") {
+  if (isUp(key)) {
     host.detailScroll = Math.max(0, host.detailScroll - 1);
     host.draw();
     return;
   }
-  if (key === "\x1b[B" || key === "j") {
+  if (isDown(key)) {
     host.detailScroll = host.detailScroll + 1;
     host.draw();
     return;
   }
-  if (key === "\x1b[5~") {
+  if (key.kind === "pgup") {
     host.detailScroll = Math.max(0, host.detailScroll - 10);
     host.draw();
     return;
   }
-  if (key === "\x1b[6~") {
+  if (key.kind === "pgdn") {
     host.detailScroll = host.detailScroll + 10;
     host.draw();
     return;
   }
-  if (key === "a" || key === "y") {
+  if (isAccept(key)) {
     resolveDetail(host, "accepted");
     return;
   }
-  if (key === "r" || key === "n") {
+  if (isReject(key)) {
     resolveDetail(host, "rejected");
     return;
   }
-  if (key === "d") {
+  if (isDelete(key)) {
     const it = host.detailKeyword;
     if (!it || it.kind !== "keyword") return;
     const removed = host.db.removeKeyword(it.query);
@@ -117,7 +134,7 @@ export function handleKeywordDetailKey(host: TuiHost, key: string): void {
     host.draw();
     return;
   }
-  if (key === "q" || key === "\x1b") {
+  if (isClose(key)) {
     host.detailKeyword = null;
     host.detailTweets = [];
     host.detailScroll = 0;
@@ -212,10 +229,10 @@ function resolveDetail(host: TuiHost, state: "accepted" | "rejected"): void {
     host.detailScroll = 0;
     host.selected = 0;
   } else if (updated) {
-    // Stay anchored at idx. After an "add" accept that row vanishes from
-    // the top, so the item at idx is now a different row (likely the next
-    // add or the first existing keyword). For remove/change verdicts the
-    // row stays but loses its suggestion.
+    // Stay anchored at idx. After an "add" accept that row vanishes from the
+    // top, so the item at idx is now a different row (likely the next add or
+    // the first existing keyword). For remove/change verdicts the row stays
+    // but loses its suggestion.
     const nextIdx = Math.min(idx, host.keywordItems.length - 1);
     host.selected = nextIdx;
     const target = host.keywordItems[nextIdx];

@@ -1,19 +1,20 @@
 import { getConfigItems, isSelectable, type ConfigItem } from "./config-items.ts";
+import { isActivate, isDown, isUp, type ParsedKey } from "./keys.ts";
 import type { TuiHost } from "./types.ts";
 
-export function handleConfigKey(host: TuiHost, key: string): void {
+export function handleConfigKey(host: TuiHost, key: ParsedKey): void {
   const items = getConfigItems(host);
-  if (key === "j" || key === "\x1b[B") {
+  if (isDown(key)) {
     host.configCursor = step(items, host.configCursor, 1);
     host.draw();
     return;
   }
-  if (key === "k" || key === "\x1b[A") {
+  if (isUp(key)) {
     host.configCursor = step(items, host.configCursor, -1);
     host.draw();
     return;
   }
-  if (key === "\r" || key === "\n" || key === " ") {
+  if (isActivate(key)) {
     const item = items[host.configCursor];
     if (!item) return;
     void runItem(host, item);

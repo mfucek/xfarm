@@ -4,6 +4,7 @@ import {
   DIM,
   FG_CYAN,
   FG_GREEN,
+  FG_WHITE,
   RESET,
   ageStr,
   parsePitchBullets,
@@ -97,6 +98,7 @@ export function renderTweetDetailItem(
   it: TweetDetailItem,
   width: number,
   selected: boolean,
+  opts: { copiedAt?: number | null } = {},
 ): string[] {
   const prefix = selected ? `${FG_CYAN}│${RESET} ` : "  ";
 
@@ -121,7 +123,14 @@ export function renderTweetDetailItem(
       });
     }
     if (selected && it.copyHint) {
-      out.push(prefix + DIM + it.copyHint + RESET);
+      const justCopied =
+        opts.copiedAt != null && Date.now() - opts.copiedAt < 3000;
+      out.push(
+        prefix +
+          (justCopied
+            ? `${FG_WHITE}✓ copied to clipboard${RESET}`
+            : `${DIM}${it.copyHint}${RESET}`),
+      );
     }
     return out;
   }

@@ -150,9 +150,10 @@ export function renderTweetDetail(cols: number, host: TuiHost): string {
   const cur = Math.max(0, Math.min(host.tweetDetailCursor, items.length - 1));
 
   const out: string[] = [];
+  const opts = { copiedAt: host.tweetDetailCopiedAt };
   items.forEach((it, idx) => {
     if (it.kind === "header" && out.length > 0) out.push("");
-    for (const line of renderTweetDetailItem(it, width, idx === cur)) {
+    for (const line of renderTweetDetailItem(it, width, idx === cur, opts)) {
       out.push(line);
     }
   });
