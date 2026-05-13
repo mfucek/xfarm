@@ -75,6 +75,17 @@ const ScheduleSchema = z.object({
 // (uses your ChatGPT subscription via `codex login`).
 const ProviderSchema = z.enum(["gemini", "codex"]).default("gemini");
 
+// Optional naumu MCP consultation. When enabled and provider supports
+// function calling (Gemini), the judge can call `ask_naumu` to query the
+// naumu graph before producing its final JSON. Streamable HTTP transport
+// only; the API key is read from process.env.NAUMU_API_KEY.
+const NaumuMcpSchema = z.object({
+  enabled: z.boolean().default(false),
+  server_url: z.string().default(""),
+  graph_id: z.string().default(""),
+  max_tool_calls: z.number().int().min(0).max(10).default(3),
+});
+
 const JudgeSchema = z.object({
   provider: ProviderSchema,
   // Gemini / Vertex fields. Required when provider === "gemini" (validated
@@ -88,6 +99,12 @@ const JudgeSchema = z.object({
   codex_bin: z.string().default("codex"),
   notify_threshold: z.number().min(0).max(10).default(7.0),
   prompt_path: PathStr,
+  naumu: NaumuMcpSchema.default({
+    enabled: false,
+    server_url: "",
+    graph_id: "",
+    max_tool_calls: 3,
+  }),
 });
 
 const NotifierSchema = z.object({
@@ -159,6 +176,10 @@ function applyEnvOverrides(cfg: Config): Config {
   const locationEnv = process.env.GOOGLE_VERTEX_LOCATION;
   if (locationEnv && locationEnv.trim().length > 0) {
     cfg.judge.vertex_location = locationEnv.trim();
+  }
+  const naumuGraphEnv = process.env.NAUMU_GRAPH_ID;
+  if (naumuGraphEnv && naumuGraphEnv.trim().length > 0) {
+    cfg.judge.naumu.graph_id = naumuGraphEnv.trim();
   }
   return cfg;
 }

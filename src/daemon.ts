@@ -1,6 +1,7 @@
 import { loadConfig } from "./config.ts";
 import { DB } from "./db.ts";
 import { Judge, judgeLoop } from "./judge.ts";
+import { isNaumuEnabled, NaumuMcpClient } from "./judge/naumu-mcp.ts";
 import { clearPid, isDaemonRunning, readPid, writePid } from "./lifecycle.ts";
 import { notifyLoop } from "./notifier.ts";
 import { Browser } from "./scraper/browser.ts";
@@ -29,7 +30,9 @@ export async function runDaemon(): Promise<void> {
   console.log(`[daemon] burner loaded: @${browser.burnerUsername}`);
 
   const bucket = new TokenBucket(cfg.scraper.max_requests_per_minute);
-  const judge = new Judge(cfg);
+  const naumu = isNaumuEnabled(cfg) ? new NaumuMcpClient(cfg) : null;
+  if (naumu) void naumu.connect();
+  const judge = new Judge(cfg, naumu);
   const suggester = cfg.suggester.enabled ? new Suggester(cfg) : null;
   const ac = new AbortController();
   const { signal } = ac;

@@ -7,6 +7,7 @@ import {
   FG_WHITE,
   RESET,
   ageStr,
+  likesPerHour,
   parsePitchBullets,
   wrapText,
 } from "./ansi.ts";
@@ -47,14 +48,14 @@ export function getTweetDetailItems(
   const items: TweetDetailItem[] = [];
 
   const score = r.llm_score == null ? "—" : r.llm_score.toFixed(1);
-  const velocity = r.velocity == null ? "—" : r.velocity.toFixed(1);
+  const velocity = likesPerHour(r.likes, r.created_at).toFixed(1);
   items.push({
     kind: "meta",
     lines: [
       `${FG_CYAN}@${r.author}${RESET}` +
         `  ${DIM}${ageStr(r.created_at)} ago${RESET}` +
         `  ${DIM}score${RESET} ${score}` +
-        `  ${DIM}l/min${RESET} ${velocity}` +
+        `  ${DIM}l/hr${RESET} ${velocity}` +
         `  ${DIM}likes${RESET} ${r.likes ?? 0}`,
       DIM + r.url + RESET,
     ],

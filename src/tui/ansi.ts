@@ -98,3 +98,14 @@ export const ageStr = (iso: string): string => {
   if (secs < 86400) return `${Math.floor(secs / 3600)}h`;
   return `${Math.floor(secs / 86400)}d`;
 };
+
+export const likesPerHour = (
+  likes: number | null | undefined,
+  createdAtIso: string,
+): number => {
+  const ageHr = Math.max(
+    (Date.now() - new Date(createdAtIso).getTime()) / 3600000,
+    1 / 60,
+  );
+  return (likes ?? 0) / ageHr;
+};

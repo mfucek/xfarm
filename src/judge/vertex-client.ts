@@ -1,9 +1,17 @@
 import { chmodSync, mkdirSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
-import { GoogleGenAI, Type } from "@google/genai";
+import {
+  type Content,
+  type FunctionCall,
+  type FunctionDeclaration,
+  GoogleGenAI,
+  type Part,
+  type Tool as GenAiTool,
+  Type,
+} from "@google/genai";
 import type { Config } from "../config.ts";
-import type { JsonSchema, LlmClient } from "./llm.ts";
+import type { JsonSchema, LlmClient, Tool } from "./llm.ts";
 
 /**
  * Resolve Vertex credentials. Priority:
@@ -79,6 +87,95 @@ export class VertexClient implements LlmClient {
       },
     });
     const txt = resp.text ?? "";
+    return JSON.parse(txt) as T;
+  }
+
+  async generateJsonAgentic<T = unknown>(
+    prompt: string,
+    schema: JsonSchema,
+    tools: Tool[],
+    maxIterations = 5,
+  ): Promise<T> {
+    const declarations: FunctionDeclaration[] = tools.map((t) => ({
+      name: t.name,
+      description: t.description,
+      parameters: toGenAiSchema(t.parameters) as never,
+    }));
+    const handlers = new Map(tools.map((t) => [t.name, t.handler]));
+    const toolConfig: GenAiTool[] = [{ functionDeclarations: declarations }];
+
+    const contents: Content[] = [
+      { role: "user", parts: [{ text: prompt }] },
+    ];
+
+    // Phase 1: agentic turns. Gemini disallows structured output when tools
+    // are bound, so we let the model freely call tools and emit prose; the
+    // final structured response comes from a separate call below.
+    for (let iter = 0; iter < maxIterations; iter++) {
+      const resp = await this.ai.models.generateContent({
+        model: this.cfg.judge.model,
+        contents,
+        config: { tools: toolConfig },
+      });
+      const calls: FunctionCall[] = resp.functionCalls ?? [];
+      if (calls.length === 0) break;
+
+      // Echo the model's tool-call parts back into history so it sees what
+      // it asked for, then attach matching functionResponse parts.
+      const modelParts = resp.candidates?.[0]?.content?.parts ?? [];
+      contents.push({ role: "model", parts: modelParts });
+
+      const responseParts: Part[] = [];
+      for (const call of calls) {
+        const name = call.name ?? "";
+        const args = (call.args ?? {}) as Record<string, unknown>;
+        const handler = handlers.get(name);
+        let result: string;
+        if (!handler) {
+          result = `<no handler registered for tool ${name}>`;
+        } else {
+          try {
+            console.log(
+              `[judge] tool ${name}(${JSON.stringify(args).slice(0, 120)})`,
+            );
+            result = await handler(args);
+            console.log(`[judge] tool ${name} -> ${result.slice(0, 120)}`);
+          } catch (e) {
+            result = `<tool-error: ${(e as Error).message}>`;
+          }
+        }
+        responseParts.push({
+          functionResponse: {
+            id: call.id,
+            name,
+            response: { output: result },
+          },
+        });
+      }
+      contents.push({ role: "user", parts: responseParts });
+    }
+
+    // Phase 2: final structured-output turn. Drop tools, append a marker so
+    // the model knows we want the JSON now, and enforce the response schema.
+    contents.push({
+      role: "user",
+      parts: [
+        {
+          text:
+            "Now produce the final response as strict JSON matching the required schema. " +
+            "Do not call any more tools.",
+        },
+      ],
+    });
+    const finalResp = await this.ai.models.generateContent({
+      model: this.cfg.judge.model,
+      contents,
+      config: {
+        responseMimeType: "application/json",
+        responseSchema: toGenAiSchema(schema) as never,
+      },
+    });
+    const txt = finalResp.text ?? "";
     return JSON.parse(txt) as T;
   }
 }

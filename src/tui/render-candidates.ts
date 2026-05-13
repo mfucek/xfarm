@@ -8,6 +8,7 @@ import {
   RESET,
   REVERSE,
   ageStr,
+  likesPerHour,
   padRight,
   truncVisible,
 } from "./ansi.ts";
@@ -42,7 +43,7 @@ export function renderCandidates(cols: number, ctx: RenderCtx): string {
       " " +
       padRight("score", COL_SCORE) +
       " " +
-      padRight("l/min", COL_VEL) +
+      padRight("l/hr", COL_VEL) +
       " " +
       padRight("likes", COL_LIKES) +
       " text / angle" +
@@ -68,7 +69,7 @@ export function renderCandidates(cols: number, ctx: RenderCtx): string {
     const scoreCell = scoreHot
       ? `${FG_YELLOW}${BOLD}${score}${RESET}${isSel ? REVERSE : ""}`
       : score;
-    const velocity = r.velocity == null ? "—" : r.velocity.toFixed(1);
+    const velocity = likesPerHour(r.likes, r.created_at).toFixed(1);
 
     const prefix = isSel ? REVERSE : "";
     const suffix = isSel ? RESET : "";

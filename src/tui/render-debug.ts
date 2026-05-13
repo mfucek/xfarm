@@ -19,8 +19,6 @@ import {
   scheduleState,
   summary as scheduleSummary,
 } from "../schedule.ts";
-import { clampToSelectable } from "./items.ts";
-import { isDebugItemSelectable } from "./keys-debug.ts";
 import { scrollAnchored } from "./scroll-view.ts";
 import type {
   ActivitySnapshot,
@@ -200,9 +198,7 @@ export function renderDebug(
   ctx: RenderCtx,
   items: DebugItem[],
 ): string {
-  // Snap onto an action so the cursor never sits on a read-only section.
-  const cur = clampToSelectable(items, ctx.debugCursor, isDebugItemSelectable);
-  ctx.debugCursor = cur;
+  const cur = Math.max(0, Math.min(ctx.debugCursor, items.length - 1));
 
   // Pre-compute action label width so the menu lines up.
   const actionItems = items.filter(
