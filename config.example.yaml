@@ -34,6 +34,19 @@ gate:
   velocity_window_min: 30
   min_likes_absolute: 50
 
+# Unified scheduling. One scrape at a time, paced by base_interval ± jitter.
+# Every long_break_after scrapes, the scheduler pauses for long_break_sec to
+# avoid looking robotic. Quiet hours suspend scraping entirely outside the
+# active window.
+schedule:
+  active_hours_start: 8         # 8:00 am local
+  active_hours_end: 19          # 7:00 pm local (exclusive); set equal to start for 24/7
+  base_interval_sec: 30         # ~2 scrapes/min average
+  jitter_sec: 30                # uniform ±30s on top of base -> 0..60s gap
+  long_break_after: 30          # every ~30 scrapes (~15 min activity)
+  long_break_sec: 600           # ...take a 10-minute break
+  home_interval_sec: 900        # visit x.com/home every ~15 min
+
 judge:
   vertex_project: "your-gcp-project"
   vertex_location: "us-central1"
@@ -47,6 +60,14 @@ judge:
 notifier:
   enabled: true
   sound: "Glass"
+
+# Keyword-suggester. Every N tweets the LLM is shown the chunk and the
+# current keyword list, and proposes adds/removes. Each tweet is bucketed
+# into exactly one chunk — no evidence is ever re-analyzed.
+suggester:
+  enabled: true
+  chunk_size: 100
+  prompt_path: ./prompts/keyword-suggester.md
 
 storage:
   db_path: ~/.xfarm/data.db

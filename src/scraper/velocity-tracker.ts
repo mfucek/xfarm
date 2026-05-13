@@ -1,8 +1,9 @@
 import type { Config } from "../config.ts";
 import type { DB } from "../db.ts";
+import { scheduleState } from "../schedule.ts";
 import type { Browser } from "./browser.ts";
 import { parseTweetsOnPage } from "./parse.ts";
-import { TokenBucket, jitteredSleep } from "./rate-limit.ts";
+import { TokenBucket, jitteredSleep, sleep } from "./rate-limit.ts";
 
 function likesPerMinute(likes: number, createdAtIso: string): number {
   const created = new Date(createdAtIso).getTime();
@@ -31,7 +32,7 @@ function passesGate(
   return false;
 }
 
-async function repollOne(
+export async function repollOne(
   browser: Browser,
   db: DB,
   id: string,
@@ -73,29 +74,3 @@ async function repollOne(
   });
 }
 
-export async function trackerLoop(
-  browser: Browser,
-  db: DB,
-  cfg: Config,
-  bucket: TokenBucket,
-  stop: AbortSignal,
-): Promise<void> {
-  const interval = cfg.velocity.tracker_interval_sec * 1000;
-  while (!stop.aborted) {
-    const ids = db.fetchTrackingSet(cfg.velocity.max_age_hours);
-    if (ids.length === 0) {
-      await jitteredSleep(interval, cfg.scraper.jitter_pct);
-      continue;
-    }
-    for (const id of ids) {
-      if (stop.aborted) return;
-      try {
-        await repollOne(browser, db, id, cfg, bucket);
-      } catch (e) {
-        console.error(`[tracker] error on id=${id}:`, e);
-      }
-      await jitteredSleep(1500, cfg.scraper.jitter_pct);
-    }
-    await jitteredSleep(interval, cfg.scraper.jitter_pct);
-  }
-}

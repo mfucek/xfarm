@@ -49,6 +49,21 @@ const GateSchema = z.object({
   min_likes_absolute: z.number().int().nonnegative().default(50),
 });
 
+const ScheduleSchema = z.object({
+  // Quiet hours: scraping is paused outside this window (local time, 0..23).
+  active_hours_start: z.number().int().min(0).max(23).default(0),
+  active_hours_end: z.number().int().min(0).max(23).default(0),
+  // Global scrape cadence: one scrape every base_interval_sec + uniform(-jitter, +jitter).
+  // Default = 30 ± 30s -> 0..60s between scrapes (~2/min mean).
+  base_interval_sec: z.number().int().positive().default(30),
+  jitter_sec: z.number().int().nonnegative().default(30),
+  // Every long_break_after scrapes, take a long_break_sec pause. Set after=0 to disable.
+  long_break_after: z.number().int().nonnegative().default(30),
+  long_break_sec: z.number().int().nonnegative().default(600),
+  // Home timeline: visit roughly this often (seconds between visits).
+  home_interval_sec: z.number().int().positive().default(900),
+});
+
 const JudgeSchema = z.object({
   // Optional here; can come from GOOGLE_VERTEX_PROJECT_ID env var instead.
   vertex_project: z.string().optional().default(""),
@@ -62,6 +77,14 @@ const JudgeSchema = z.object({
 const NotifierSchema = z.object({
   enabled: z.boolean().default(true),
   sound: z.string().default("Glass"),
+});
+
+const SuggesterSchema = z.object({
+  enabled: z.boolean().default(true),
+  // Tweets per LLM call. Each tweet is bucketed into exactly one chunk so
+  // the model never re-analyzes the same evidence.
+  chunk_size: z.number().int().positive().default(100),
+  prompt_path: PathStr.default(expandPath("./prompts/keyword-suggester.md")),
 });
 
 const StorageSchema = z.object({
@@ -83,8 +106,22 @@ const ConfigSchema = z.object({
     velocity_window_min: 30,
     min_likes_absolute: 50,
   }),
+  schedule: ScheduleSchema.default({
+    active_hours_start: 0,
+    active_hours_end: 0,
+    base_interval_sec: 30,
+    jitter_sec: 30,
+    long_break_after: 30,
+    long_break_sec: 600,
+    home_interval_sec: 900,
+  }),
   judge: JudgeSchema,
   notifier: NotifierSchema.default({ enabled: true, sound: "Glass" }),
+  suggester: SuggesterSchema.default({
+    enabled: true,
+    chunk_size: 100,
+    prompt_path: expandPath("./prompts/keyword-suggester.md"),
+  }),
   storage: StorageSchema.default({ db_path: expandPath("~/.xfarm/data.db") }),
   logging: LoggingSchema.default({
     level: "INFO",

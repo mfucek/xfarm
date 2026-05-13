@@ -13,7 +13,7 @@ import type { JudgeResult, TweetRow } from "./types.ts";
  *   2. cfg.judge.credentials_path (explicit SA key)
  *   3. ADC (gcloud auth application-default login) — handled by google-auth
  */
-function resolveCredentialsPath(cfg: Config): string | null {
+export function resolveCredentialsPath(cfg: Config): string | null {
   const b64 = process.env.GOOGLE_VERTEX_CREDENTIALS_B64;
   if (b64 && b64.trim().length > 0) {
     const cachePath = join(homedir(), ".xfarm", ".cache", "vertex-sa.json");

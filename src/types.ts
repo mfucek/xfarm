@@ -38,3 +38,20 @@ export type JudgeResult = {
   reason: string;
   suggested_angle: string;
 };
+
+export type SuggestionVerdict = "add" | "remove" | "change";
+export type SuggestionState = "pending" | "accepted" | "rejected";
+
+export type SuggestionRow = {
+  id: number;
+  chunk_id: number;
+  verdict: SuggestionVerdict;
+  keyword: string;
+  // For "change": the new keyword to insert in place of `keyword`.
+  // NULL for "add" / "remove".
+  replacement: string | null;
+  reason: string;
+  state: SuggestionState;
+  created_at: string;
+  resolved_at: string | null;
+};

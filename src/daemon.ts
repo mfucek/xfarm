@@ -4,10 +4,9 @@ import { Judge, judgeLoop } from "./judge.ts";
 import { clearPid, isDaemonRunning, readPid, writePid } from "./lifecycle.ts";
 import { notifyLoop } from "./notifier.ts";
 import { Browser } from "./scraper/browser.ts";
-import { watchlistLoop } from "./scraper/account-scan.ts";
-import { keywordLoop } from "./scraper/keyword-scan.ts";
 import { TokenBucket } from "./scraper/rate-limit.ts";
-import { trackerLoop } from "./scraper/velocity-tracker.ts";
+import { runScheduler } from "./scraper/scheduler.ts";
+import { Suggester, suggesterLoop } from "./suggester.ts";
 
 export async function runDaemon(): Promise<void> {
   if (isDaemonRunning()) {
@@ -31,6 +30,7 @@ export async function runDaemon(): Promise<void> {
 
   const bucket = new TokenBucket(cfg.scraper.max_requests_per_minute);
   const judge = new Judge(cfg);
+  const suggester = cfg.suggester.enabled ? new Suggester(cfg) : null;
   const ac = new AbortController();
   const { signal } = ac;
 
@@ -56,15 +56,9 @@ export async function runDaemon(): Promise<void> {
   process.on("SIGINT", () => void shutdown("SIGINT"));
   process.on("SIGTERM", () => void shutdown("SIGTERM"));
 
-  await Promise.all([
-    watchlistLoop(browser, db, cfg, bucket, signal).catch((e) =>
-      console.error("[watchlist] fatal:", e),
-    ),
-    keywordLoop(browser, db, cfg, bucket, signal).catch((e) =>
-      console.error("[keyword] fatal:", e),
-    ),
-    trackerLoop(browser, db, cfg, bucket, signal).catch((e) =>
-      console.error("[tracker] fatal:", e),
+  const loops: Promise<unknown>[] = [
+    runScheduler(browser, db, cfg, bucket, signal).catch((e) =>
+      console.error("[scheduler] fatal:", e),
     ),
     judgeLoop(judge, db, signal).catch((e) =>
       console.error("[judge] fatal:", e),
@@ -72,5 +66,13 @@ export async function runDaemon(): Promise<void> {
     notifyLoop(db, cfg, signal).catch((e) =>
       console.error("[notifier] fatal:", e),
     ),
-  ]);
+  ];
+  if (suggester) {
+    loops.push(
+      suggesterLoop(suggester, db, cfg, signal).catch((e) =>
+        console.error("[suggester] fatal:", e),
+      ),
+    );
+  }
+  await Promise.all(loops);
 }

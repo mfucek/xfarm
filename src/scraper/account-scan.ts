@@ -1,8 +1,9 @@
 import type { Config } from "../config.ts";
 import type { DB } from "../db.ts";
+import { scheduleState } from "../schedule.ts";
 import type { Browser } from "./browser.ts";
 import { parseFollowerCount, parseTweetsOnPage } from "./parse.ts";
-import { TokenBucket, jitteredSleep } from "./rate-limit.ts";
+import { TokenBucket, jitteredSleep, sleep } from "./rate-limit.ts";
 
 const followerCache = new Map<string, number | null>();
 
@@ -58,32 +59,3 @@ export async function scanAuthor(
   return newCount;
 }
 
-export async function watchlistLoop(
-  browser: Browser,
-  db: DB,
-  cfg: Config,
-  bucket: TokenBucket,
-  stop: AbortSignal,
-): Promise<void> {
-  const { scan_interval_sec } = cfg.watchlist;
-  while (!stop.aborted) {
-    const due = db.authorsDue(scan_interval_sec);
-    if (due.length === 0) {
-      await jitteredSleep(
-        Math.min(scan_interval_sec, 30) * 1000,
-        cfg.scraper.jitter_pct,
-      );
-      continue;
-    }
-    for (const { handle, tier } of due) {
-      if (stop.aborted) return;
-      try {
-        const n = await scanAuthor(browser, db, handle, tier, bucket);
-        if (n > 0) console.log(`[watchlist] @${handle} +${n} new`);
-      } catch (e) {
-        console.error(`[watchlist] error on @${handle}:`, e);
-      }
-      await jitteredSleep(2000, cfg.scraper.jitter_pct);
-    }
-  }
-}

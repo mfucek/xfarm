@@ -1,36 +1,40 @@
-import type { Config } from "../config.ts";
 import type { DB } from "../db.ts";
-import { scheduleState } from "../schedule.ts";
 import type { Browser } from "./browser.ts";
 import { parseTweetsOnPage } from "./parse.ts";
-import { TokenBucket, jitteredSleep, sleep } from "./rate-limit.ts";
+import { TokenBucket } from "./rate-limit.ts";
 
-export async function scanKeyword(
+/**
+ * Visit https://x.com/home (the "For You" feed for logged-in users) and
+ * collect whatever tweets are on screen. Lower-signal than the watchlist
+ * but useful for ambient discovery — anything good will pass the gate
+ * via velocity tracking.
+ */
+export async function scanHome(
   browser: Browser,
   db: DB,
-  query: string,
   bucket: TokenBucket,
 ): Promise<number> {
   await bucket.acquire();
   let newCount = 0;
   await browser.withPage(async (page) => {
-    const url = `https://x.com/search?q=${encodeURIComponent(query)}&src=typed_query&f=live`;
     try {
-      await page.goto(url, { waitUntil: "domcontentloaded", timeout: 30000 });
+      await page.goto("https://x.com/home", {
+        waitUntil: "domcontentloaded",
+        timeout: 30000,
+      });
       await page
         .waitForSelector('article[data-testid="tweet"]', { timeout: 15000 })
         .catch(() => undefined);
-
       const tweets = await parseTweetsOnPage(page);
       for (const t of tweets.slice(0, 20)) {
         const inserted = db.upsertTweet({
           id: t.id,
           author: t.author,
-          authorFollowers: null, // not visible on search results
+          authorFollowers: null,
           text: t.text,
           url: t.url,
           createdAt: t.createdAt,
-          source: `keyword:${query}`,
+          source: "feed:home",
           likes: t.likes,
           replies: t.replies,
           retweets: t.retweets,
@@ -38,10 +42,9 @@ export async function scanKeyword(
         if (inserted) newCount++;
       }
     } catch (e) {
-      console.error(`[keyword] ${JSON.stringify(query)} scan failed:`, e);
+      console.error("[home] scan failed:", e);
     }
   });
-  db.markKeywordScanned(query);
+  db.markFeedScanned("home");
   return newCount;
 }
-
