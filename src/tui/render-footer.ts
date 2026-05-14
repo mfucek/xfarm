@@ -9,7 +9,7 @@ export function renderFooter(ctx: RenderCtx): string {
   if (ctx.detailRow) {
     return (
       DIM +
-      "↑/↓ select · ←/→ prev/next · Enter run · x hide · esc/q back" +
+      "↑/↓ select · ←/→ prev/next · Enter run · o open · x hide · esc/q back" +
       RESET
     );
   }

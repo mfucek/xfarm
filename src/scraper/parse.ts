@@ -1,5 +1,14 @@
 import type { Page } from "playwright";
 import type { ScrapedTweet } from "../types.ts";
+import { jitteredSleep, TokenBucket } from "./rate-limit.ts";
+
+/** Scraped tweet plus an internal flag the parser sets when X rendered a
+ * "Show more" link inside the tweet body — meaning the visible text is the
+ * truncated preview, not the full post. Scanners use this to decide whether
+ * to refetch the full text from the permalink before writing to the DB. */
+export type ParsedTweet = Omit<ScrapedTweet, "authorFollowers"> & {
+  truncated: boolean;
+};
 
 /**
  * Extracts visible tweets from the current page. Runs in the browser context
@@ -8,11 +17,11 @@ import type { ScrapedTweet } from "../types.ts";
  * Skips retweets, pinned tweets, and ads. Engagement counts come from
  * aria-labels (more reliable than the K/M-abbreviated visible text).
  */
-export async function parseTweetsOnPage(
-  page: Page,
-): Promise<Omit<ScrapedTweet, "authorFollowers">[]> {
+export async function parseTweetsOnPage(page: Page): Promise<ParsedTweet[]> {
   return await page.evaluate(() => {
-    const out: Omit<ScrapedTweet, "authorFollowers">[] = [];
+    const out: (Omit<ScrapedTweet, "authorFollowers"> & {
+      truncated: boolean;
+    })[] = [];
 
     const articles = Array.from(
       document.querySelectorAll('article[data-testid="tweet"]'),
@@ -57,6 +66,22 @@ export async function parseTweetsOnPage(
       const textEl = art.querySelector('[data-testid="tweetText"]');
       const text = textEl ? (textEl as HTMLElement).innerText.trim() : "";
 
+      // X collapses long tweets on timeline/search views, rendering only the
+      // first ~280 visible chars inside [data-testid="tweetText"] plus a
+      // "Show more" link. We detect that here so the scanner can refetch the
+      // full text from the permalink. The testid is X's stable hook; we also
+      // fall back to a literal "Show more" link inside the article in case
+      // the testid changes.
+      let truncated = !!art.querySelector(
+        '[data-testid="tweet-text-show-more-link"]',
+      );
+      if (!truncated) {
+        const links = Array.from(art.querySelectorAll("a, button, span"));
+        truncated = links.some(
+          (el) => (el.textContent || "").trim() === "Show more",
+        );
+      }
+
       // engagement
       const replyBtn = art.querySelector('[data-testid="reply"]');
       const retweetBtn = art.querySelector('[data-testid="retweet"]');
@@ -80,6 +105,7 @@ export async function parseTweetsOnPage(
         likes,
         replies,
         retweets,
+        truncated,
       });
     }
 
@@ -125,6 +151,74 @@ export async function parseFollowerCount(
     }
     return null;
   });
+}
+
+/**
+ * Reads the focal tweet's full text from a permalink page. On a standalone
+ * tweet view (x.com/<author>/status/<id>) X renders the whole post body
+ * inside [data-testid="tweetText"] without the "Show more" collapse, so we
+ * just find the article whose status link matches the given id and read its
+ * tweetText. Returns null if the article or text element isn't found —
+ * caller should keep the truncated preview as fallback.
+ */
+async function parseTweetTextFromPermalink(
+  page: Page,
+  tweetId: string,
+): Promise<string | null> {
+  return await page.evaluate((id) => {
+    const articles = Array.from(
+      document.querySelectorAll('article[data-testid="tweet"]'),
+    );
+    for (const art of articles) {
+      const link = art.querySelector(`a[href*="/status/${id}"]`);
+      if (!link) continue;
+      const textEl = art.querySelector('[data-testid="tweetText"]');
+      if (!textEl) continue;
+      return (textEl as HTMLElement).innerText.trim();
+    }
+    return null;
+  }, tweetId);
+}
+
+/**
+ * For each tweet flagged as truncated, navigate to its permalink and replace
+ * its `.text` with the full post body. Mutates the items in place — callers
+ * pass the same array they're about to upsert. Each visit costs one bucket
+ * token plus a jittered delay to stay polite to X. Failures are logged and
+ * fall back to the truncated preview.
+ *
+ * The caller already holds `withPage`, so we navigate the same shared page.
+ * That destroys the original search/timeline state, which is fine: by the
+ * time this is called, parsing is done and we only need the permalink view.
+ */
+export async function expandTruncatedTweets(
+  page: Page,
+  bucket: TokenBucket,
+  tweets: ParsedTweet[],
+): Promise<void> {
+  for (const t of tweets) {
+    if (!t.truncated) continue;
+    await bucket.acquire();
+    try {
+      await page.goto(t.url, {
+        waitUntil: "domcontentloaded",
+        timeout: 30000,
+      });
+      await page
+        .waitForSelector('article[data-testid="tweet"]', { timeout: 15000 })
+        .catch(() => undefined);
+      const full = await parseTweetTextFromPermalink(page, t.id);
+      if (full && full.length > t.text.length) t.text = full;
+    } catch (e) {
+      console.warn(
+        `[scan] full-text fetch failed for ${t.id}: ${(e as Error).message}`,
+      );
+    }
+    // Pace permalink visits so a single scan doesn't blast 20 requests
+    // back-to-back. The bucket already caps overall rate; this just spaces
+    // them within the scan.
+    await jitteredSleep(800, 50);
+  }
 }
 
 /**

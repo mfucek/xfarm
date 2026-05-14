@@ -15,6 +15,7 @@ import {
   getTweetDetailItems,
   hideAndAdvance,
   isSelectable,
+  openTweet,
   type TweetDetailItem,
 } from "./tweet-detail-items.ts";
 import type { TuiHost } from "./types.ts";
@@ -48,6 +49,14 @@ export function handleTweetDetailKey(host: TuiHost, key: ParsedKey): void {
   // inner cursor is.
   if (isChar("x")(key)) {
     hideAndAdvance(host, r);
+    return;
+  }
+
+  // o — open the tweet in the default browser without having to move the
+  // cursor onto the "open tweet" action row.
+  if (isChar("o")(key)) {
+    openTweet(host, r);
+    host.draw();
     return;
   }
 

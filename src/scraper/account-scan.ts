@@ -2,7 +2,11 @@ import type { Config } from "../config.ts";
 import type { DB } from "../db.ts";
 import { scheduleState } from "../schedule.ts";
 import type { Browser } from "./browser.ts";
-import { parseFollowerCount, parseTweetsOnPage } from "./parse.ts";
+import {
+  expandTruncatedTweets,
+  parseFollowerCount,
+  parseTweetsOnPage,
+} from "./parse.ts";
 import { TokenBucket, jitteredSleep, sleep } from "./rate-limit.ts";
 import { passesGate } from "./velocity-tracker.ts";
 
@@ -33,9 +37,13 @@ export async function scanAuthor(
       const followers = followerCache.get(handle) ?? null;
 
       const tweets = await parseTweetsOnPage(page);
-      for (const t of tweets.slice(0, 15)) {
-        // only authors's own posts (user page can show replies that aren't theirs in some views)
-        if (t.author.toLowerCase() !== handle.toLowerCase()) continue;
+      const slice = tweets
+        .slice(0, 15)
+        .filter((t) => t.author.toLowerCase() === handle.toLowerCase());
+      // Refetch full text for any tweet X collapsed with "Show more" before
+      // upserting, so the DB never holds a truncated preview.
+      await expandTruncatedTweets(page, bucket, slice);
+      for (const t of slice) {
         const inserted = db.upsertTweet({
           id: t.id,
           author: t.author,

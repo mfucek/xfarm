@@ -1,6 +1,6 @@
 import type { DB } from "../db.ts";
 import type { Browser } from "./browser.ts";
-import { parseTweetsOnPage } from "./parse.ts";
+import { expandTruncatedTweets, parseTweetsOnPage } from "./parse.ts";
 import { TokenBucket } from "./rate-limit.ts";
 
 /**
@@ -26,7 +26,11 @@ export async function scanHome(
         .waitForSelector('article[data-testid="tweet"]', { timeout: 15000 })
         .catch(() => undefined);
       const tweets = await parseTweetsOnPage(page);
-      for (const t of tweets.slice(0, 20)) {
+      const slice = tweets.slice(0, 20);
+      // Refetch full text for any tweet X collapsed with "Show more" before
+      // upserting, so the DB never holds a truncated preview.
+      await expandTruncatedTweets(page, bucket, slice);
+      for (const t of slice) {
         const inserted = db.upsertTweet({
           id: t.id,
           author: t.author,
