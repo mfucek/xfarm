@@ -42,7 +42,19 @@ export type DebugSection = {
   id: "daemon" | "activity" | "paths" | "scheduling" | "stats" | "recent_log";
 };
 
-export type DebugItem = DebugSection | DebugAction;
+/** Explicit group-header row. Used to introduce a cluster of rows that
+ * share a title (e.g. the "actions (Enter run)" block above the action
+ * buttons). Self-contained sections render their own title inline, so they
+ * don't need a separate header item. Mirrors Config's `header` kind so
+ * both pages use the same grouping machinery. */
+export type DebugHeader = {
+  kind: "header";
+  label: string;
+  /** Dim trailing text after the label, e.g. " (Enter run)". */
+  suffix?: string;
+};
+
+export type DebugItem = DebugSection | DebugAction | DebugHeader;
 
 // Read view passed to render functions. The TUI class implements this and
 // passes `this`; renderers may write `detailScroll` to clamp scroll position

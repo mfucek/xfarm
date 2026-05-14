@@ -8,6 +8,7 @@ import {
   startDaemonAction,
   stopDaemonAction,
 } from "./daemon-actions.ts";
+import { clampToStop, nextStopIdx } from "./items.ts";
 import {
   isActivate,
   isChar,
@@ -15,12 +16,23 @@ import {
   isUp,
   type ParsedKey,
 } from "./keys.ts";
+import { assignGroups, computeCursorStops } from "./list-rail.ts";
 import type { DebugAction, DebugItem, TuiHost } from "./types.ts";
+
+const isStarter = (it: DebugItem): boolean =>
+  it.kind === "section" || it.kind === "header";
+const isAction = (it: DebugItem): boolean => it.kind === "action";
+
+function buildStops(items: DebugItem[]): boolean[] {
+  const groupOf = assignGroups(items, isStarter);
+  return computeCursorStops(items, groupOf, isStarter, isAction);
+}
 
 export function getDebugItems(host: TuiHost): DebugItem[] {
   return [
     { kind: "section", id: "daemon" },
     { kind: "section", id: "activity" },
+    { kind: "header", label: "actions", suffix: " (Enter run)" },
     {
       kind: "action",
       label: "restart daemon",
@@ -117,16 +129,19 @@ export function getDebugItems(host: TuiHost): DebugItem[] {
 export function handleDebugKey(host: TuiHost, key: ParsedKey): void {
   if (host.busy) return;
   const items = getDebugItems(host);
-  // Cursor walks every row, sections included — debug uses the cursor as a
-  // scroll anchor, not just an action picker. Enter on a section is a no-op
-  // (handled below), but the user still wants to hover them to read.
+  const stops = buildStops(items);
+  // Defensive snap: if the items list rebuilt (e.g. on config reload), the
+  // previous cursor might now land on a skipped row. Always snap before
+  // processing the key. Same shape as keys-config.ts.
+  host.debugCursor = clampToStop(stops, host.debugCursor);
+
   if (isDown(key)) {
-    host.debugCursor = Math.min(host.debugCursor + 1, items.length - 1);
+    host.debugCursor = nextStopIdx(stops, host.debugCursor, 1);
     host.draw();
     return;
   }
   if (isUp(key)) {
-    host.debugCursor = Math.max(0, host.debugCursor - 1);
+    host.debugCursor = nextStopIdx(stops, host.debugCursor, -1);
     host.draw();
     return;
   }

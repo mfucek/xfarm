@@ -99,6 +99,17 @@ export const wrapText = (s: string, width: number): string[] => {
   return lines;
 };
 
+/** Render a section header as two lines: the styled header body and a thin
+ * DIM `─` rule beneath it. Callers compose `body` with their own BOLD/DIM
+ * spans and prepend any per-page indent prefix to both returned lines.
+ *
+ * Shared across pages so section breaks read the same everywhere — bold
+ * label on top, dim rule underneath. */
+export const renderSectionHeader = (
+  body: string,
+  ruleWidth: number,
+): string[] => [body, DIM + "─".repeat(Math.max(4, ruleWidth)) + RESET];
+
 export const ageStr = (iso: string): string => {
   const secs = Math.max(
     0,

@@ -50,7 +50,7 @@ function readCookies(): {
 function mask(s: string): string {
   if (!s) return "(unset)";
   if (s.length <= 8) return "•".repeat(s.length);
-  return `${s.slice(0, 4)}…${s.slice(-4)} (${s.length} chars)`;
+  return `${s.slice(0, 4)}…${s.slice(-4)} ·${s.length} chars`;
 }
 
 async function editBurnerField(

@@ -1,19 +1,40 @@
 import { getConfigItems, isSelectable, type ConfigItem } from "./config-items.ts";
+import { clampToStop, nextStopIdx } from "./items.ts";
 import { isActivate, isDown, isUp, type ParsedKey } from "./keys.ts";
+import { assignGroups, computeCursorStops } from "./list-rail.ts";
 import type { TuiHost } from "./types.ts";
+
+// Cursor stops on selectable rows (field/toggle) OR on a section title
+// when that section has no selectables (so users can still hover read-only
+// groups like Setup status). Headers that lead selectable rows are
+// transparent to navigation — pressing Down from the previous group lands
+// directly on the first selectable row underneath. Same rule applies in
+// Debug; see `computeCursorStops` in `list-rail.ts`.
+
+function buildStops(items: ConfigItem[]): boolean[] {
+  const groupOf = assignGroups(items, (it) => it.kind === "header");
+  return computeCursorStops(
+    items,
+    groupOf,
+    (it) => it.kind === "header",
+    isSelectable,
+  );
+}
 
 export function handleConfigKey(host: TuiHost, key: ParsedKey): void {
   const items = getConfigItems(host);
-  // Cursor walks every row — sections/status/usage included — so the user
-  // can scroll the page by hovering. Enter is a no-op on non-selectable
-  // rows (handled below). Matches Debug's behavior.
+  const stops = buildStops(items);
+  // Defensive: if the items list rebuilt and the previous cursor now points
+  // at a skipped row, snap to the nearest stop before processing the key.
+  host.configCursor = clampToStop(stops, host.configCursor);
+
   if (isDown(key)) {
-    host.configCursor = Math.min(host.configCursor + 1, items.length - 1);
+    host.configCursor = nextStopIdx(stops, host.configCursor, 1);
     host.draw();
     return;
   }
   if (isUp(key)) {
-    host.configCursor = Math.max(0, host.configCursor - 1);
+    host.configCursor = nextStopIdx(stops, host.configCursor, -1);
     host.draw();
     return;
   }

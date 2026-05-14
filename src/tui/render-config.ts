@@ -6,17 +6,25 @@ import {
 import {
   BOLD,
   DIM,
-  FG_CYAN,
   FG_GREEN,
   FG_RED,
   FG_YELLOW,
   RESET,
   padRight,
+  renderSectionHeader,
   stripAnsi,
   truncVisible,
 } from "./ansi.ts";
 import { getConfigItems } from "./config-items.ts";
+import { assignGroups, railPrefix, rowArrow } from "./list-rail.ts";
 import type { RenderCtx, TuiHost } from "./types.ts";
+
+// Layout: each header starts a group that owns every following non-header
+// item up to the next header. `railPrefix` adds the cyan `│ ` left rail to
+// every line of the group containing the cursor; other groups get a plain
+// 2-space indent. Selected actionable rows get a `›` arrow + bold label.
+// Section titles, status, and codex usage are not selectable — the cursor
+// skips them.
 
 export function renderConfig(
   cols: number,
@@ -26,26 +34,20 @@ export function renderConfig(
   const items = getConfigItems(host);
   const cur = Math.max(0, Math.min(host.configCursor, items.length - 1));
 
-  // Pre-compute label width across all field/toggle items so values align.
-  // Labels render wrapped in `[ ... ]` brackets, so add 4 extra chars.
+  // Label column width: widest plain label across all interactive rows.
+  // No `[ brackets ]` to budget for anymore.
   const labelW = Math.max(
     8,
     ...items
       .filter((it) => it.kind === "field" || it.kind === "toggle")
-      .map((it) => stripAnsi((it as { label: string }).label).length + 4),
+      .map((it) => stripAnsi((it as { label: string }).label).length),
   );
 
-  // Each header starts a group that owns every following non-header item up
-  // to the next header. When the cursor lives in a group, the entire group
-  // gets the cyan `│` rail — same visual contract as the Debug page's action
-  // groups. Sections rendered without grouping would be flush-left and the
-  // user couldn't see which section their cursor is in.
-  const groupOfItem: number[] = [];
-  let g = -1;
-  items.forEach((it, idx) => {
-    if (it.kind === "header") g++;
-    groupOfItem[idx] = g;
-  });
+  // Unified grouping: each `header` starts a new group; non-header items
+  // (status, codex_usage, field, toggle) belong to the preceding group.
+  // Debug uses the same `assignGroups` machinery with its own predicate
+  // (section + header items as group-starters).
+  const groupOfItem = assignGroups(items, (it) => it.kind === "header");
   const curGroup = groupOfItem[cur] ?? -1;
 
   const out: string[] = [];
@@ -54,35 +56,64 @@ export function renderConfig(
 
   items.forEach((it, idx) => {
     const isSel = idx === cur;
-    const inSelectedGroup = groupOfItem[idx] === curGroup;
-    const prefix = inSelectedGroup ? `${FG_CYAN}│${RESET} ` : "  ";
+    const prefix = railPrefix(groupOfItem[idx] === curGroup);
     if (isSel) curStart = out.length;
 
     if (it.kind === "header") {
       if (out.length > 0) out.push("");
-      out.push(prefix + BOLD + it.label + RESET);
+      const headerLines = renderSectionHeader(
+        BOLD + it.label + RESET,
+        cols - 4,
+      );
+      for (const line of headerLines) out.push(prefix + line);
     } else if (it.kind === "status") {
       for (const line of renderStatus(host)) out.push(prefix + line);
     } else if (it.kind === "codex_usage") {
-      for (const line of renderCodexUsage(cols, host)) out.push(prefix + line);
+      for (const line of renderCodexUsage(cols, labelW, host)) {
+        out.push(prefix + line);
+      }
     } else {
-      const marker = isSel ? `${FG_CYAN}›${RESET}` : " ";
-      const bracketed = `[ ${it.label} ]`;
+      // field or toggle row
+      const marker = rowArrow(isSel);
       const label = isSel
-        ? `${BOLD}${padRight(bracketed, labelW)}${RESET}`
-        : padRight(bracketed, labelW);
-      const valueColor =
-        it.kind === "toggle" ? FG_GREEN : valueColorFor(it.value);
-      const valW = Math.max(10, Math.floor((cols - 8 - labelW) * 0.45));
-      const value = valueColor + truncVisible(it.value, valW) + RESET;
-      const hint = it.hint ? `   ${DIM}${it.hint}${RESET}` : "";
-      out.push(prefix + `  ${marker} ${label}  ${value}${hint}`);
+        ? BOLD + padRight(it.label, labelW) + RESET
+        : padRight(it.label, labelW);
+
+      let valueStr: string;
+      if (it.kind === "toggle") {
+        if (it.value === "off") {
+          valueStr = `${DIM}○ off${RESET}`;
+        } else if (it.value === "on") {
+          valueStr = `${FG_GREEN}● on${RESET}`;
+        } else {
+          // Non-boolean toggle (e.g. provider: codex / gemini). Filled
+          // circle in green communicates "stateful selection" same as the
+          // on-pill — the value text differs but the affordance is identical.
+          valueStr = `${FG_GREEN}● ${it.value}${RESET}`;
+        }
+      } else {
+        const color = valueColorFor(it.value);
+        const valW = Math.max(10, Math.floor((cols - 8 - labelW) * 0.45));
+        valueStr = color + truncVisible(it.value, valW) + RESET;
+      }
+
+      // Inline hint only on the focused row. Trim to fit remaining width
+      // so it never wraps past the right edge.
+      let hint = "";
+      if (isSel && it.hint) {
+        // prefix=2, "  "=2, marker=1, " "=1, label=labelW, "  "=2, value, "   "=3
+        const used = 8 + labelW + stripAnsi(valueStr).length + 3;
+        const remaining = Math.max(8, cols - used);
+        hint = `   ${DIM}${truncVisible(it.hint, remaining)}${RESET}`;
+      }
+
+      out.push(prefix + `  ${marker} ${label}  ${valueStr}${hint}`);
     }
 
     if (isSel) curEnd = out.length - 1;
   });
 
-  // Apply same windowing approach as renderDebug.
+  // Windowing (unchanged from previous version).
   if (out.length <= bodyRows) return out.join("\n");
 
   const innerRows = Math.max(1, bodyRows - 1);
@@ -109,7 +140,11 @@ function valueColorFor(v: string): string {
   return "";
 }
 
-function renderCodexUsage(cols: number, host: TuiHost): string[] {
+function renderCodexUsage(
+  cols: number,
+  labelW: number,
+  host: TuiHost,
+): string[] {
   // Kick off a background refresh if the cache is stale. Doesn't block —
   // the fresh data shows up on the next tick (1s) once codex app-server
   // responds.
@@ -120,8 +155,8 @@ function renderCodexUsage(cols: number, host: TuiHost): string[] {
     return [DIM + "(querying codex app-server…)" + RESET];
   }
   const out: string[] = [];
-  out.push(renderBucket("primary", usage.primary, cols));
-  out.push(renderBucket("secondary", usage.secondary, cols));
+  out.push(renderBucket("primary", usage.primary, cols, labelW));
+  out.push(renderBucket("secondary", usage.secondary, cols, labelW));
   const obs = new Date(usage.observed_at);
   const ageSec = Math.max(0, Math.floor((Date.now() - obs.getTime()) / 1000));
   const ageStr = ageSec < 60 ? `${ageSec}s` : `${Math.floor(ageSec / 60)}m`;
@@ -139,13 +174,13 @@ function renderBucket(
   label: "primary" | "secondary",
   b: CodexBucket | null,
   cols: number,
+  labelW: number,
 ): string {
-  const friendlyLabel =
-    label === "primary"
-      ? `5h window  ${DIM}(primary)${RESET}`
-      : `weekly     ${DIM}(secondary)${RESET}`;
+  // Pad to labelW so percentage/bar starts at the same column as field
+  // values do above and below.
+  const friendlyLabel = label === "primary" ? "5h window" : "weekly";
   if (!b) {
-    return `${padRight(friendlyLabel, 28)} ${DIM}—${RESET}`;
+    return `${padRight(friendlyLabel, labelW)}  ${DIM}—${RESET}`;
   }
   const pct = b.used_percent;
   const bar = renderBar(pct, Math.max(10, Math.min(40, cols - 50)));
@@ -155,7 +190,7 @@ function renderBucket(
     b.window_minutes > 0 && label === "secondary"
       ? ` ${DIM}(${formatWindow(b.window_minutes)})${RESET}`
       : "";
-  return `${padRight(friendlyLabel, 28)} ${pctStr} ${bar}${reset}${windowHint}`;
+  return `${padRight(friendlyLabel, labelW)}  ${pctStr} ${bar}${reset}${windowHint}`;
 }
 
 function renderBar(pct: number, width: number): string {

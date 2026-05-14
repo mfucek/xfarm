@@ -8,9 +8,11 @@ import {
   FG_YELLOW,
   RESET,
   padRight,
+  renderSectionHeader,
   stripAnsi,
   truncVisible,
 } from "./ansi.ts";
+import { assignGroups, railPrefix, rowArrow } from "./list-rail.ts";
 import { DEFAULT_CONFIG_PATH } from "../config.ts";
 import { logFilePath, pidFilePath } from "../lifecycle.ts";
 import {
@@ -69,7 +71,7 @@ function renderSection(
   ctx: RenderCtx,
 ): string[] {
   if (id === "daemon") {
-    const lines = [BOLD + "daemon" + RESET];
+    const lines = renderSectionHeader(BOLD + "daemon" + RESET, cols - 4);
     if (ctx.daemonStatus === "running") {
       const uptime =
         ctx.debug.daemonStartedAt != null
@@ -84,9 +86,10 @@ function renderSection(
     return lines;
   }
   if (id === "activity") {
-    const lines = [
+    const lines = renderSectionHeader(
       BOLD + "activity" + RESET + DIM + " (last 60m, 1-min buckets)" + RESET,
-    ];
+      cols - 4,
+    );
     for (const l of renderActivityChart(Math.max(20, cols - 2), ctx.activity)) {
       lines.push(l);
     }
@@ -94,7 +97,7 @@ function renderSection(
   }
   if (id === "paths") {
     return [
-      BOLD + "paths" + RESET,
+      ...renderSectionHeader(BOLD + "paths" + RESET, cols - 4),
       `  config:  ${DIM}${DEFAULT_CONFIG_PATH}${RESET}`,
       `  db:      ${DIM}${ctx.cfg.storage.db_path}${RESET}`,
       `  log:     ${DIM}${logFilePath()}${RESET}`,
@@ -102,7 +105,10 @@ function renderSection(
     ];
   }
   if (id === "scheduling") {
-    const lines: string[] = [BOLD + "scheduling" + RESET];
+    const lines: string[] = renderSectionHeader(
+      BOLD + "scheduling" + RESET,
+      cols - 4,
+    );
     const sched = scheduleState(ctx.cfg);
     const window = describeWindow(ctx.cfg);
     const labeled = (k: string, v: string) =>
@@ -182,7 +188,7 @@ function renderSection(
     return lines;
   }
   if (id === "stats") {
-    const lines = [BOLD + "stats" + RESET];
+    const lines = renderSectionHeader(BOLD + "stats" + RESET, cols - 4);
     const s = ctx.debug.stats;
     if (s) {
       const pair = (k: string, v: number) =>
@@ -200,9 +206,10 @@ function renderSection(
     return lines;
   }
   // recent_log
-  const lines = [
+  const lines = renderSectionHeader(
     BOLD + "recent log" + RESET + DIM + " (" + logFilePath() + ")" + RESET,
-  ];
+    cols - 4,
+  );
   if (ctx.debug.logTail.length === 0) {
     lines.push(DIM + "  (log is empty)" + RESET);
   } else {
@@ -231,54 +238,62 @@ export function renderDebug(
     ? Math.max(...actionItems.map((a) => stripAnsi(a.label).length + 4))
     : 0;
 
+  // Unified grouping: each `section` is a self-contained group of one; each
+  // `header` starts a multi-item group of subsequent action rows. Config
+  // uses the same `assignGroups` machinery with its own predicate.
+  const groupOfItem = assignGroups(
+    items,
+    (it) => it.kind === "section" || it.kind === "header",
+  );
+  const curGroup = groupOfItem[cur] ?? -1;
+
   const out: string[] = [];
   let curStart = 0;
   let curEnd = 0;
 
-  let i = 0;
-  while (i < items.length) {
-    const item = items[i]!;
-    if (item.kind === "section") {
-      const isSel = i === cur;
-      if (isSel) curStart = out.length;
-      const prefix = isSel ? `${FG_CYAN}│${RESET} ` : "  ";
-      for (const line of renderSection(item.id, cols, ctx)) out.push(prefix + line);
-      if (isSel) curEnd = out.length - 1;
-      i++;
-      if (i < items.length) out.push("");
-      continue;
-    }
-    // Action group: gather consecutive action items.
-    const groupStart = i;
-    let groupEnd = i;
-    while (groupEnd < items.length && items[groupEnd]!.kind === "action") {
-      groupEnd++;
-    }
-    const groupSelected = cur >= groupStart && cur < groupEnd;
-    const groupPrefix = groupSelected ? `${FG_CYAN}│${RESET} ` : "  ";
+  items.forEach((item, idx) => {
+    // Blank line between groups: emit before each non-first group-starter.
+    const startsGroup = item.kind === "section" || item.kind === "header";
+    if (startsGroup && out.length > 0) out.push("");
 
-    out.push(
-      groupPrefix + BOLD + "actions" + RESET + DIM + " (Enter run)" + RESET,
-    );
-    for (let k = groupStart; k < groupEnd; k++) {
-      const a = items[k] as DebugAction;
-      const isSel = k === cur;
-      if (isSel) curStart = out.length;
-      const marker = isSel ? `${FG_CYAN}›${RESET}` : " ";
-      const bracketed = `[ ${a.label} ]`;
+    const isSel = idx === cur;
+    if (isSel) curStart = out.length;
+    const prefix = railPrefix(groupOfItem[idx] === curGroup);
+
+    if (item.kind === "section") {
+      for (const line of renderSection(item.id, cols, ctx)) {
+        out.push(prefix + line);
+      }
+    } else if (item.kind === "header") {
+      const body =
+        BOLD +
+        item.label +
+        RESET +
+        (item.suffix ? DIM + item.suffix + RESET : "");
+      for (const line of renderSectionHeader(body, cols - 4)) {
+        out.push(prefix + line);
+      }
+    } else {
+      // action row
+      const marker = rowArrow(isSel);
+      const bracketed = `[ ${item.label} ]`;
       const label = isSel
         ? `${BOLD}${padRight(bracketed, labelW)}${RESET}`
         : padRight(bracketed, labelW);
-      const hint = a.hint ? `   ${DIM}${a.hint}${RESET}` : "";
-      out.push(groupPrefix + `  ${marker} ${label}${hint}`);
-      if (isSel) curEnd = out.length - 1;
+      const hint = item.hint ? `   ${DIM}${item.hint}${RESET}` : "";
+      out.push(prefix + `  ${marker} ${label}${hint}`);
+
+      // After the last action in a cluster (next item isn't another action),
+      // surface a "working…" indicator if busy and the cursor is in this
+      // group. Mirrors the old bespoke loop's behavior.
+      const nextIsAction = items[idx + 1]?.kind === "action";
+      if (!nextIsAction && ctx.busy && groupOfItem[idx] === curGroup) {
+        out.push(prefix + `    ${FG_YELLOW}working…${RESET}`);
+      }
     }
-    if (ctx.busy && groupSelected) {
-      out.push(groupPrefix + `    ${FG_YELLOW}working…${RESET}`);
-    }
-    i = groupEnd;
-    if (i < items.length) out.push("");
-  }
+
+    if (isSel) curEnd = out.length - 1;
+  });
 
   const windowed = scrollAnchored(out, bodyRows, curStart, curEnd);
   return (windowed ?? out).join("\n");

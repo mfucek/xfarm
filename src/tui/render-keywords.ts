@@ -9,6 +9,7 @@ import {
   REVERSE,
   ageStr,
   padRight,
+  renderSectionHeader,
   truncVisible,
   wrapText,
 } from "./ansi.ts";
@@ -231,19 +232,24 @@ export function renderKeywordDetail(
   lines.push("");
 
   if (s) {
-    lines.push(BOLD + "reason" + RESET);
+    for (const l of renderSectionHeader(BOLD + "reason" + RESET, width)) {
+      lines.push(l);
+    }
     for (const l of wrapText(s.reason, width)) lines.push(l);
 
     if (ctx.detailTweets.length > 0) {
       lines.push("");
-      lines.push(
+      for (const l of renderSectionHeader(
         BOLD +
           `examples (${ctx.detailTweets.length})` +
           RESET +
           DIM +
           " — tweets in chunk that match this keyword" +
           RESET,
-      );
+        width,
+      )) {
+        lines.push(l);
+      }
       // Box inner area is `width - 4` (2 frame chars + 2 padding).
       const innerWidth = Math.max(10, width - 4);
       ctx.detailTweets.forEach((t, idx) => {
