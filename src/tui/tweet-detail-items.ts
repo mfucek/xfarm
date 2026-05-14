@@ -16,6 +16,7 @@ import {
   wrapText,
 } from "./ansi.ts";
 import { renderBox, renderDividedCard } from "./box.ts";
+import { railPrefix, rowArrow } from "./list-rail.ts";
 import { renderSpinnerLabel } from "./spinner.ts";
 import type { TweetRow } from "../types.ts";
 import type { TuiHost } from "./types.ts";
@@ -165,7 +166,7 @@ export function getTweetDetailItems(
       for (const p of pitches) {
         items.push({
           kind: "bullet",
-          lines: wrapText(p, Math.max(10, width - 2)),
+          lines: wrapText(p, Math.max(10, width - 6)),
           raw: p,
           color: FG_GREEN,
           copyHint: "Enter to copy · p to refine",
@@ -235,13 +236,14 @@ export function renderTweetDetailItem(
   it: TweetDetailItem,
   width: number,
   selected: boolean,
+  inSelectedGroup: boolean,
   opts: {
     copiedAt?: number | null;
     busyAction?: string | null;
     judgeStatus?: string | null;
   } = {},
 ): string[] {
-  const prefix = selected ? `${FG_CYAN}│${RESET} ` : "  ";
+  const prefix = railPrefix(inSelectedGroup);
 
   if (it.kind === "meta") {
     return renderBox(it.lines, width, DIM).map((l) => prefix + l);
@@ -262,15 +264,22 @@ export function renderTweetDetailItem(
   }
   if (it.kind === "bullet") {
     const color = it.color ?? "";
+    const marker = rowArrow(selected);
     const out: string[] = it.lines.map(
-      (l, i) => prefix + color + (i === 0 ? "• " : "  ") + l + RESET,
+      (l, i) =>
+        prefix +
+        (i === 0 ? `${marker} ` : "  ") +
+        color +
+        (i === 0 ? "• " : "  ") +
+        l +
+        RESET,
     );
     if (selected && it.copyHint) {
       const justCopied =
         opts.copiedAt != null && Date.now() - opts.copiedAt < 3000;
       out.push(
         prefix +
-          "  " +
+          "    " +
           (justCopied
             ? `${FG_WHITE}✓ copied to clipboard${RESET}`
             : `${DIM}${it.copyHint}${RESET}`),
@@ -285,10 +294,10 @@ export function renderTweetDetailItem(
       status: it.status,
       color,
     });
-    return [`${prefix}${color}• ${RESET}${text}`];
+    return [`${prefix}  ${color}• ${RESET}${text}`];
   }
   // action
-  const marker = selected ? `${FG_CYAN}›${RESET}` : " ";
+  const marker = rowArrow(selected);
   const isBusy = opts.busyAction != null && opts.busyAction === it.label;
   if (isBusy) {
     // Replace the label with the spinner so the user's eye stays on the row

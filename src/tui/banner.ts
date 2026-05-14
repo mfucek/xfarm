@@ -2,6 +2,7 @@ import { patchConfigFile } from "../config.ts";
 import { runGitPull } from "../version-check.ts";
 import { BOLD, FG_YELLOW, RESET, REVERSE, stripAnsi } from "./ansi.ts";
 import { renderBox } from "./box.ts";
+import { gradientText } from "./gradient.ts";
 import {
   isActivate,
   isDown,
@@ -11,39 +12,6 @@ import {
   type ParsedKey,
 } from "./keys.ts";
 import type { TuiHost } from "./types.ts";
-
-// HSL → RGB. h in [0, 1) cycles full hue; s, l in [0, 1]. Standard formula.
-function hslToRgb(h: number, s: number, l: number): [number, number, number] {
-  const f = (n: number): number => {
-    const k = (n + h * 12) % 12;
-    const a = s * Math.min(l, 1 - l);
-    return Math.round(
-      255 *
-        (l - a * Math.max(-1, Math.min(k - 3, Math.min(9 - k, 1)))),
-    );
-  };
-  return [f(0), f(8), f(4)];
-}
-
-/**
- * Per-char rainbow with a moving phase. The phase is time-driven so caller
- * just needs to redraw frequently; the function is pure. Hue spans ~0.35 of
- * the wheel across the string so adjacent chars are clearly distinct without
- * looping back to the start mid-word.
- */
-function gradientText(text: string, phaseMs: number): string {
-  const len = text.length;
-  if (len === 0) return "";
-  // 4000ms per full hue revolution.
-  const base = (phaseMs / 4000) % 1;
-  let out = "";
-  for (let i = 0; i < len; i++) {
-    const h = (base + (i / len) * 0.35) % 1;
-    const [r, g, b] = hslToRgb(h, 0.85, 0.62);
-    out += `\x1b[38;2;${r};${g};${b}m${text[i]}`;
-  }
-  return out + RESET;
-}
 
 /**
  * "new version available" banner row above the header.

@@ -95,7 +95,7 @@ export class TUI implements TuiHost {
   // as one linear list. Sections are read-only; actions execute on Enter.
   debugCursor = 0;
   configCursor = 1; // start past the first header so j/k feels right
-  aboutScroll = 0;
+  aboutCursor = 0;
   tweetDetailCursor = 0;
   tweetDetailCopiedAt: number | null = null;
   tweetDetailBusyAction: string | null = null;
@@ -132,10 +132,13 @@ export class TUI implements TuiHost {
         this.draw();
       }
     }, 1000);
-    // Banner gradient animation. Only draws when the banner is visible, so
-    // the 10fps cadence costs nothing while no update is available.
+    // Gradient animation tick. Drives the update banner's per-char hue
+    // and the About page's gradient box border (latest release). The
+    // 10fps cadence costs nothing on pages that don't animate.
     this.bannerAnimId = setInterval(() => {
-      if (!this.stopFlag && this.updateAvailable) this.draw();
+      if (this.stopFlag) return;
+      const animating = this.updateAvailable != null || this.page === "about";
+      if (animating) this.draw();
     }, 100);
 
     stdout.on("resize", () => this.draw());

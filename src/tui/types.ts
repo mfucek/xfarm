@@ -82,8 +82,12 @@ export interface RenderCtx {
   busy: boolean;
   debugCursor: number;
   configCursor: number;
-  /** Free-scroll offset for the About page (release notes). */
-  aboutScroll: number;
+  /** Index of the selected release on the About page (one stop per
+   * release, newest first). Drives the focused-border highlight and
+   * the snap-nav from `keys-about.ts`. The renderer anchors the
+   * viewport on the focused release via `scrollAnchored`, so no
+   * separate scroll offset is needed. */
+  aboutCursor: number;
   tweetDetailCursor: number;
   /** Timestamp of last successful copy from the tweet-detail bullets. The
    * bullets section renders a "✓ copied" notice while this is recent; null

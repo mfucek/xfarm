@@ -15,7 +15,8 @@ import {
 } from "./ansi.ts";
 import type { TweetRow } from "../types.ts";
 import type { RenderCtx, TuiHost } from "./types.ts";
-import { clampToSelectable } from "./items.ts";
+import { clampToStop } from "./items.ts";
+import { assignGroups, computeCursorStops } from "./list-rail.ts";
 import {
   getTweetDetailItems,
   isSelectable,
@@ -231,11 +232,21 @@ export function renderTweetDetail(
   const width = Math.max(20, Math.min(100, cols - 4));
   const items = getTweetDetailItems(host, r, width);
 
-  // Snap onto the nearest actionable row so the cursor is never stuck on a
-  // header/meta/text row. Writing back keeps the host cursor in sync so the
-  // next j/k advances from the visible position.
-  const cur = clampToSelectable(items, host.tweetDetailCursor, isSelectable);
+  // Group machinery mirrors Config/Debug — header items start groups; the
+  // cursor only stops on selectables (actions, bullets). The rail spans every
+  // line of the group containing the cursor, so the post box and stats card
+  // light up together when an action in the "actions" group is selected.
+  const groupOf = assignGroups(items, (it) => it.kind === "header");
+  const stops = computeCursorStops(
+    items,
+    groupOf,
+    (it) => it.kind === "header",
+    isSelectable,
+    { anchorEmptyGroups: false },
+  );
+  const cur = clampToStop(stops, host.tweetDetailCursor);
   host.tweetDetailCursor = cur;
+  const curGroup = groupOf[cur] ?? -1;
 
   const out: string[] = [];
   let curStart = 0;
@@ -248,8 +259,15 @@ export function renderTweetDetail(
   items.forEach((it, idx) => {
     if (it.kind === "header" && out.length > 0) out.push("");
     const isSel = idx === cur;
+    const inSelectedGroup = groupOf[idx] === curGroup;
     if (isSel) curStart = out.length;
-    for (const line of renderTweetDetailItem(it, width, isSel, opts)) {
+    for (const line of renderTweetDetailItem(
+      it,
+      width,
+      isSel,
+      inSelectedGroup,
+      opts,
+    )) {
       out.push(line);
     }
     if (isSel) curEnd = out.length - 1;

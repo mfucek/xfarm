@@ -57,17 +57,27 @@ export function assignGroups<T>(
 /** Compute "the cursor can stop here" for each item index, given the
  * group assignment and the page's selectable/group-starter predicates.
  *
- * Rule, applied identically to Config and Debug:
+ * Base rule (always applied):
  *   - Selectable items are always cursor stops.
- *   - A group-starter is a cursor stop only if its group has no other
- *     selectable items. Read-only groups (debug `daemon`, config `Setup
- *     status`) anchor the cursor on their title so the user can scroll
- *     through them; interactive groups (config `Burner X account`, debug
- *     `actions`) skip the title and let the cursor land directly on the
- *     first selectable item.
- *   - Anything else (non-selectable, non-starter — e.g. config `status`
- *     and `codex_usage` content blocks) is also skipped; the group's
- *     title is the cursor anchor for those.
+ *   - Non-selectable, non-starter rows (e.g. config `status` and
+ *     `codex_usage` content blocks, tweet-detail `meta`/`text`) are
+ *     always skipped.
+ *
+ * `anchorEmptyGroups` (default `true`) controls what happens to a
+ * group-starter whose group has no selectable rows underneath:
+ *   - `true` (Config/Debug): the starter itself becomes a cursor stop,
+ *     so read-only groups (config `Setup status`, debug `daemon`)
+ *     anchor the cursor on their title and the user can scroll through
+ *     them. Interactive groups (their starter is non-selectable but the
+ *     group has selectables below) still skip the title and land the
+ *     cursor on the first selectable row.
+ *   - `false` (Tweet detail, About-style use cases): starters never
+ *     become cursor stops on their own — j/k lands only on truly
+ *     selectable rows. Read-only groups become pure visual chrome
+ *     that the cursor passes over without pausing on. About is a
+ *     degenerate case: it sets `selectable` to "always false" so the
+ *     starter-as-stop fallback is the *only* way the cursor lands
+ *     anywhere; that page uses `anchorEmptyGroups: true` (the default).
  *
  * Returns a boolean array parallel to `items`. Key handlers use it via
  * `nextStopIdx` / `clampToStop` (see `items.ts`) to navigate. */
@@ -76,7 +86,9 @@ export function computeCursorStops<T>(
   groupOf: readonly number[],
   startsGroup: (it: T) => boolean,
   selectable: (it: T) => boolean,
+  opts: { anchorEmptyGroups?: boolean } = {},
 ): boolean[] {
+  const anchorEmptyGroups = opts.anchorEmptyGroups ?? true;
   const groupHasSelectable = new Map<number, boolean>();
   items.forEach((it, idx) => {
     if (selectable(it)) groupHasSelectable.set(groupOf[idx]!, true);
@@ -84,6 +96,8 @@ export function computeCursorStops<T>(
   return items.map(
     (it, idx) =>
       selectable(it) ||
-      (startsGroup(it) && !groupHasSelectable.get(groupOf[idx]!)),
+      (anchorEmptyGroups &&
+        startsGroup(it) &&
+        !groupHasSelectable.get(groupOf[idx]!)),
   );
 }

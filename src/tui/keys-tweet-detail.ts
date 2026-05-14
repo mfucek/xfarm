@@ -10,7 +10,8 @@ import {
   isUp,
   type ParsedKey,
 } from "./keys.ts";
-import { stepSelectable } from "./items.ts";
+import { clampToStop, nextStopIdx } from "./items.ts";
+import { assignGroups, computeCursorStops } from "./list-rail.ts";
 import {
   getTweetDetailItems,
   hideAndAdvance,
@@ -20,6 +21,22 @@ import {
 } from "./tweet-detail-items.ts";
 import { runRefineReplyIdea } from "./refine-reply.ts";
 import type { TuiHost } from "./types.ts";
+
+// Same `header`-starts-a-group predicate as render-candidates uses; the
+// `anchorEmptyGroups: false` flag is the page-level call that headers
+// (`post`, read-only `angle`/`context` blocks) never anchor the cursor —
+// j/k lands only on actions and bullets. See list-rail.ts for the
+// shared rule.
+function buildTweetDetailStops(items: TweetDetailItem[]): boolean[] {
+  const groupOf = assignGroups(items, (it) => it.kind === "header");
+  return computeCursorStops(
+    items,
+    groupOf,
+    (it) => it.kind === "header",
+    isSelectable,
+    { anchorEmptyGroups: false },
+  );
+}
 
 export function handleTweetDetailKey(host: TuiHost, key: ParsedKey): void {
   const r = host.detailRow;
@@ -87,24 +104,17 @@ export function handleTweetDetailKey(host: TuiHost, key: ParsedKey): void {
     return;
   }
 
+  const stops = buildTweetDetailStops(items);
+  host.tweetDetailCursor = clampToStop(stops, host.tweetDetailCursor);
+
   if (isDown(key)) {
-    host.tweetDetailCursor = stepSelectable(
-      items,
-      host.tweetDetailCursor,
-      1,
-      isSelectable,
-    );
+    host.tweetDetailCursor = nextStopIdx(stops, host.tweetDetailCursor, 1);
     host.tweetDetailCopiedAt = null;
     host.draw();
     return;
   }
   if (isUp(key)) {
-    host.tweetDetailCursor = stepSelectable(
-      items,
-      host.tweetDetailCursor,
-      -1,
-      isSelectable,
-    );
+    host.tweetDetailCursor = nextStopIdx(stops, host.tweetDetailCursor, -1);
     host.tweetDetailCopiedAt = null;
     host.draw();
     return;
