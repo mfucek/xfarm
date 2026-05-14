@@ -1,105 +1,117 @@
-#!/bin/sh
-# Build a dockable macOS .app in /Applications that runs ./start.sh in a new
-# Terminal window. Re-running this script replaces the existing install.
-# The script path is baked in at install time — re-run after moving the repo.
+#!/usr/bin/env bash
+# xfarm one-shot installer. Designed to be run two ways:
 #
-# Icon: drop icon.icns (preferred) or icon.png (1024x1024 recommended) in the
-# repo root before running. icon.png is auto-converted via sips + iconutil.
-set -eu
+#   curl -fsSL https://raw.githubusercontent.com/mfucek/xfarm/main/install.sh | bash
+#   ./install.sh                    # from a local clone
+#
+# It clones (or pulls) the repo into ~/.xfarm/app, runs preflight (bun,
+# Playwright Chromium, optional terminal-notifier), drops an `xfarm` shim
+# into ~/.local/bin, and on macOS builds the dockable /Applications/XFarm.app.
+#
+# Re-running is safe — clones become git-pulls, the shim is rewritten, the
+# .app is rebuilt. Set XFARM_NO_APP=1 to skip the .app step.
 
-REPO_DIR="$(cd "$(dirname "$0")" && pwd)"
-APP_NAME="XFarm"
-BUNDLE_ID="local.xfarm.app"
-APP_PATH="/Applications/${APP_NAME}.app"
-SCRIPT="$REPO_DIR/start.sh"
+set -euo pipefail
 
-# Legacy install from earlier versions of this script
-OLD_APP_PATH="/Applications/start.app"
-OLD_BUNDLE_ID="local.xfarm.start"
+REPO_URL="https://github.com/mfucek/xfarm.git"
+APP_DIR="$HOME/.xfarm/app"
+SHIM_DIR="$HOME/.local/bin"
+SHIM_PATH="$SHIM_DIR/xfarm"
 
-if [ ! -x "$SCRIPT" ]; then
-  echo "error: $SCRIPT not found or not executable" >&2
+if [ -t 1 ]; then
+  G=$'\033[32m'; Y=$'\033[33m'; R=$'\033[31m'; B=$'\033[1m'; D=$'\033[2m'; X=$'\033[0m'
+else
+  G=""; Y=""; R=""; B=""; D=""; X=""
+fi
+say()  { printf "%s>%s %s\n" "$G" "$X" "$*"; }
+warn() { printf "%s!%s %s\n" "$Y" "$X" "$*"; }
+err()  { printf "%sx%s %s\n" "$R" "$X" "$*" >&2; }
+
+# ---- 1. git ----
+if ! command -v git >/dev/null 2>&1; then
+  err "git not found. Install Xcode Command Line Tools (xcode-select --install) or your package manager's git, then re-run."
   exit 1
 fi
 
-if [ -e "$OLD_APP_PATH" ]; then
-  OLD_ID="$(defaults read "$OLD_APP_PATH/Contents/Info" CFBundleIdentifier 2>/dev/null || true)"
-  if [ "$OLD_ID" = "$OLD_BUNDLE_ID" ]; then
-    echo "Removing legacy $OLD_APP_PATH"
-    rm -rf "$OLD_APP_PATH"
+# ---- 2. clone or update ----
+mkdir -p "$(dirname "$APP_DIR")"
+if [ -d "$APP_DIR/.git" ]; then
+  say "Updating existing install at $APP_DIR"
+  git -C "$APP_DIR" fetch --quiet origin
+  # Refuse to clobber local edits — let the user resolve.
+  if ! git -C "$APP_DIR" diff --quiet || ! git -C "$APP_DIR" diff --cached --quiet; then
+    warn "Local changes in $APP_DIR — skipping pull. Commit/stash them or rm -rf the dir and re-run."
+  else
+    git -C "$APP_DIR" merge --ff-only origin/HEAD >/dev/null 2>&1 || \
+      git -C "$APP_DIR" merge --ff-only origin/main >/dev/null 2>&1 || \
+      warn "Couldn't fast-forward. Working tree may be on a non-main branch — leaving it alone."
   fi
+elif [ -e "$APP_DIR" ]; then
+  err "$APP_DIR exists but isn't a git checkout. Move it aside and re-run."
+  exit 1
+else
+  say "Cloning xfarm → $APP_DIR"
+  git clone --quiet "$REPO_URL" "$APP_DIR"
 fi
 
-if [ -e "$APP_PATH" ]; then
-  EXISTING_ID="$(defaults read "$APP_PATH/Contents/Info" CFBundleIdentifier 2>/dev/null || true)"
-  if [ "$EXISTING_ID" != "$BUNDLE_ID" ]; then
-    echo "error: $APP_PATH exists but isn't ours (bundle id: ${EXISTING_ID:-unknown})" >&2
-    echo "remove it manually if you're sure you want to overwrite it" >&2
-    exit 1
-  fi
-  echo "Removing existing $APP_PATH"
-  rm -rf "$APP_PATH"
-fi
+cd "$APP_DIR"
 
-mkdir -p "$APP_PATH/Contents/MacOS" "$APP_PATH/Contents/Resources"
+# ---- 3. preflight (bun, playwright, terminal-notifier) ----
+# preflight.sh is non-interactive-safe: ask_yes auto-confirms when stdin
+# isn't a TTY, which is exactly the curl|bash case.
+say "Running preflight checks"
+./scripts/preflight.sh
 
-ICON_KEY=""
-ICON_ICNS="$REPO_DIR/icon.icns"
-ICON_PNG="$REPO_DIR/icon.png"
-if [ -f "$ICON_ICNS" ]; then
-  cp "$ICON_ICNS" "$APP_PATH/Contents/Resources/AppIcon.icns"
-  ICON_KEY="<key>CFBundleIconFile</key><string>AppIcon</string>"
-elif [ -f "$ICON_PNG" ]; then
-  ICONSET_DIR="$(mktemp -d)/AppIcon.iconset"
-  mkdir -p "$ICONSET_DIR"
-  for spec in \
-    "16 icon_16x16" \
-    "32 icon_16x16@2x" \
-    "32 icon_32x32" \
-    "64 icon_32x32@2x" \
-    "128 icon_128x128" \
-    "256 icon_128x128@2x" \
-    "256 icon_256x256" \
-    "512 icon_256x256@2x" \
-    "512 icon_512x512" \
-    "1024 icon_512x512@2x"; do
-    size="${spec%% *}"
-    name="${spec#* }"
-    sips -z "$size" "$size" "$ICON_PNG" --out "$ICONSET_DIR/${name}.png" >/dev/null
-  done
-  iconutil -c icns "$ICONSET_DIR" -o "$APP_PATH/Contents/Resources/AppIcon.icns"
-  rm -rf "$(dirname "$ICONSET_DIR")"
-  ICON_KEY="<key>CFBundleIconFile</key><string>AppIcon</string>"
-fi
-
-cat > "$APP_PATH/Contents/Info.plist" <<PLIST
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-  <key>CFBundleExecutable</key><string>${APP_NAME}</string>
-  <key>CFBundleIdentifier</key><string>${BUNDLE_ID}</string>
-  <key>CFBundleName</key><string>${APP_NAME}</string>
-  <key>CFBundleDisplayName</key><string>${APP_NAME}</string>
-  ${ICON_KEY}
-  <key>CFBundlePackageType</key><string>APPL</string>
-  <key>CFBundleVersion</key><string>1.0</string>
-  <key>CFBundleShortVersionString</key><string>1.0</string>
-  <key>NSHighResolutionCapable</key><true/>
-</dict>
-</plist>
-PLIST
-
-cat > "$APP_PATH/Contents/MacOS/${APP_NAME}" <<WRAPPER
+# ---- 4. shim ----
+# ~/.local/bin is the XDG-ish convention used by pipx, cargo install, etc.
+# Avoids sudo. We warn if it's not on PATH.
+mkdir -p "$SHIM_DIR"
+cat > "$SHIM_PATH" <<SHIM
 #!/bin/sh
-open -a Terminal "$SCRIPT"
-WRAPPER
-
-chmod +x "$APP_PATH/Contents/MacOS/${APP_NAME}"
-touch "$APP_PATH"
-
-echo "Installed $APP_PATH"
-if [ -z "$ICON_KEY" ]; then
-  echo "Tip: drop icon.icns (or icon.png, ideally 1024x1024) in the repo root and re-run to set an app icon."
+# xfarm launcher. Generated by install.sh — edit at your own risk.
+APP="$APP_DIR"
+cd "\$APP" || { echo "xfarm install not found at \$APP — re-run install.sh" >&2; exit 1; }
+# Make sure bun is on PATH for shells that haven't sourced ~/.bun/bin yet.
+for d in "\$HOME/.bun/bin" "/opt/homebrew/bin" "/usr/local/bin"; do
+  case ":\$PATH:" in *":\$d:"*) ;; *) [ -d "\$d" ] && PATH="\$d:\$PATH" ;; esac
+done
+export PATH
+if [ \$# -eq 0 ]; then
+  exec bun src/cli.ts watch
 fi
-echo "Open it once from Finder (right-click → Open) to clear Gatekeeper, then drag it to the Dock."
+exec bun src/cli.ts "\$@"
+SHIM
+chmod +x "$SHIM_PATH"
+say "Installed shim → $SHIM_PATH"
+
+case ":$PATH:" in
+  *":$SHIM_DIR:"*) ;;
+  *)
+    warn "$SHIM_DIR is not on your PATH."
+    printf "  Add this line to your shell rc (~/.zshrc or ~/.bashrc) and reopen the terminal:\n"
+    printf "    %sexport PATH=\"\$HOME/.local/bin:\$PATH\"%s\n" "$B" "$X"
+    ;;
+esac
+
+# ---- 5. dockable .app (macOS only, opt-out via XFARM_NO_APP=1) ----
+if [ "$(uname)" = "Darwin" ] && [ "${XFARM_NO_APP:-0}" != "1" ]; then
+  say "Building /Applications/XFarm.app"
+  ./scripts/install-app.sh || warn ".app build failed — you can retry later with ./scripts/install-app.sh"
+fi
+
+cat <<EOF
+
+${G}${B}xfarm installed.${X}
+
+${B}1. Launch${X}
+${D}   xfarm                # boots the TUI${X}
+${D}   open -a XFarm        # macOS dock launch${X}
+
+${B}2. Configure${X}
+${D}   The Config tab opens automatically until cookies + LLM are set up.${X}
+
+${B}3. Update later${X}
+${D}   curl -fsSL https://raw.githubusercontent.com/mfucek/xfarm/main/install.sh | bash${X}
+${D}   (or: git -C $APP_DIR pull)${X}
+
+EOF

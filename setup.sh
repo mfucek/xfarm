@@ -16,9 +16,9 @@ fi
 
 # Offer to build the dockable .app wrapper. Non-TTY skips silently.
 if [ -t 0 ]; then
-  read -r -p "  Build dockable .app wrapper (./install.sh)? [Y/n]: " ans
+  read -r -p "  Build dockable .app wrapper (./scripts/install-app.sh)? [Y/n]: " ans
   if [ "${ans:-Y}" != "n" ] && [ "${ans:-Y}" != "N" ]; then
-    ./install.sh
+    ./scripts/install-app.sh
   fi
 fi
 
