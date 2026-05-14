@@ -1,14 +1,8 @@
 import { stdin, stdout } from "node:process";
 import type { Config } from "./config.ts";
-import { ensureConfigFile, loadConfigLoose } from "./config.ts";
+import { loadConfigLoose } from "./config.ts";
 import { DB } from "./db.ts";
-import {
-  isDaemonRunning,
-  isFirstLaunchInSession,
-  markSessionStarted,
-  readPid,
-  startDaemonBackground,
-} from "./lifecycle.ts";
+import { isDaemonRunning, readPid } from "./lifecycle.ts";
 import { checkSetup, type SetupStatus } from "./setup-check.ts";
 import type { TweetRow } from "./types.ts";
 import {
@@ -19,12 +13,16 @@ import {
   CLEAR,
   DIM,
   ESC,
-  FG_RED,
   HIDE_CURSOR,
   HOME,
   RESET,
   SHOW_CURSOR,
 } from "./tui/ansi.ts";
+import {
+  bootstrapTui,
+  maybeStartDaemon,
+  startVersionCheckPoll,
+} from "./tui/bootstrap.ts";
 import type {
   ActivitySnapshot,
   DebugSnapshot,
@@ -390,6 +388,11 @@ class TUI implements TuiHost {
     if (key.kind === "char") {
       this.inputBuffer += key.char;
       this.draw();
+      return;
+    }
+    if (key.kind === "space") {
+      this.inputBuffer += " ";
+      this.draw();
     }
   }
 
@@ -426,33 +429,8 @@ class TUI implements TuiHost {
 }
 
 export async function runTui(): Promise<void> {
-  // Always seed a config file if missing so the TUI has something to read;
-  // loadConfigLoose tolerates missing pieces, so the Config tab can edit
-  // its way out of an invalid state.
-  ensureConfigFile();
-  const cfg = loadConfigLoose();
-  const status = checkSetup(cfg);
-  const db = new DB(cfg.storage.db_path);
-
-  // Auto-start daemon on first launch in this session ONLY when setup is
-  // complete; otherwise the daemon would crash on missing creds/cookies and
-  // spam the log. `bun --watch` restarts the TUI on every file save; we
-  // don't resurrect a daemon the user explicitly stopped (see dev.sh).
-  const firstLaunch = isFirstLaunchInSession();
-  markSessionStarted();
-  if (firstLaunch && status.ok && !isDaemonRunning()) {
-    try {
-      const pid = startDaemonBackground();
-      process.stderr.write(
-        `${DIM}[xfarm] daemon started in background (PID ${pid}, logs at ~/.xfarm/daemon.log)${RESET}\n`,
-      );
-      await new Promise((r) => setTimeout(r, 800));
-    } catch (e) {
-      process.stderr.write(
-        `${FG_RED}[xfarm] failed to start daemon: ${(e as Error).message}${RESET}\n`,
-      );
-    }
-  }
+  const { db, cfg, status } = bootstrapTui();
+  await maybeStartDaemon(status);
 
   const tui = new TUI(db, cfg);
   tui.setupStatus = status;
@@ -461,40 +439,22 @@ export async function runTui(): Promise<void> {
     const missing = status.checks.filter((c) => !c.ok).map((c) => c.id).join(", ");
     tui.flash(`setup incomplete (${missing}) — finish here to start scraping`, 8000);
   }
-  // TEMP: flip to true to preview the banner without a real upstream
-  // behind-state. While true, the periodic check is skipped so the stubbed
-  // value isn't immediately overwritten. Remove before commit.
-  const TEST_BANNER = false;
 
-  let versionCheckId: ReturnType<typeof setInterval> | null = null;
-  if (TEST_BANNER) {
-    tui.updateAvailable = { behind: 3 };
-  } else {
-    // Upstream check — runs once at startup and then every minute. Silent on
-    // every failure mode (no git, no network, no upstream), so the banner
-    // only appears when there really is something to pull. If a check comes
-    // back null after we had previously shown the banner, the user pulled
-    // out-of-band and we clear it.
-    const { checkForUpdate } = await import("./version-check.ts");
-    const pollUpdate = async (): Promise<void> => {
-      const info = await checkForUpdate();
-      const had = tui.updateAvailable;
-      if (info) {
-        tui.updateAvailable = info;
-        tui.draw();
-      } else if (had) {
-        tui.updateAvailable = null;
-        tui.bannerSelected = false;
-        tui.draw();
-      }
-    };
-    void pollUpdate();
-    versionCheckId = setInterval(() => void pollUpdate(), 60_000);
-  }
+  const versionPoll = startVersionCheckPoll((info) => {
+    const had = tui.updateAvailable;
+    if (info) {
+      tui.updateAvailable = info;
+      tui.draw();
+    } else if (had) {
+      tui.updateAvailable = null;
+      tui.bannerSelected = false;
+      tui.draw();
+    }
+  });
   try {
     await tui.run();
   } finally {
-    if (versionCheckId) clearInterval(versionCheckId);
+    versionPoll.stop();
     db.close();
   }
 }
