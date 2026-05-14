@@ -114,10 +114,17 @@ async function runUpdateAction(host: TuiHost): Promise<void> {
   host.flash("git pull --ff-only…", 30_000);
   host.draw();
   const r = await runGitPull();
-  host.flash(r.message, 6000);
-  if (r.ok) {
-    host.updateAvailable = null;
-    host.bannerSelected = false;
+  if (!r.ok) {
+    host.flash(r.message, 6000);
+    host.draw();
+    return;
   }
+  // Pull succeeded — relaunch the TUI in the same terminal session so the
+  // user picks up the new code without typing anything. runTui stops the
+  // daemon and execs a fresh bun once the TUI loop ends.
+  host.updateAvailable = null;
+  host.bannerSelected = false;
+  host.flash("pulled — restarting xfarm…", 3000);
   host.draw();
+  host.requestRestart();
 }

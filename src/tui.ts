@@ -97,6 +97,7 @@ class TUI implements TuiHost {
 
   private inputResolver: ((value: string | null) => void) | null = null;
   private stopFlag = false;
+  private restartFlag = false;
   private stopResolver: (() => void) | null = null;
   private intervalId: ReturnType<typeof setInterval> | null = null;
   private bannerAnimId: ReturnType<typeof setInterval> | null = null;
@@ -194,6 +195,15 @@ class TUI implements TuiHost {
       this.stopResolver = null;
       r();
     }
+  }
+
+  requestRestart(): void {
+    this.restartFlag = true;
+    this.requestStop();
+  }
+
+  get shouldRestart(): boolean {
+    return this.restartFlag;
   }
 
   /** Re-read config.yaml + setup status. Called after the Config tab writes. */
@@ -456,5 +466,24 @@ export async function runTui(): Promise<void> {
   } finally {
     versionPoll.stop();
     db.close();
+  }
+
+  if (tui.shouldRestart) {
+    // After a successful `git pull`, relaunch in the same terminal session:
+    // stop the (now stale-code) daemon, then synchronously exec a fresh bun
+    // process inheriting our stdio. spawnSync blocks until the new TUI exits,
+    // so the user sees one continuous session — no shell prompt in between.
+    const { stopAndWait } = await import("./lifecycle.ts");
+    const { spawnSync } = await import("node:child_process");
+    const { resolve, join } = await import("node:path");
+    process.stdout.write("xfarm: pulled new code — restarting…\n");
+    await stopAndWait(5000);
+    const repoRoot = resolve(import.meta.dir, "..");
+    const cliPath = join(repoRoot, "src", "cli.ts");
+    const result = spawnSync("bun", ["run", cliPath, "watch"], {
+      stdio: "inherit",
+      cwd: repoRoot,
+    });
+    process.exit(result.status ?? 0);
   }
 }

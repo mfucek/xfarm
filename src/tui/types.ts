@@ -98,6 +98,10 @@ export interface TuiHost extends RenderCtx {
   refresh(): void;
   promptInput(prompt: string): Promise<string | null>;
   requestStop(): void;
+  /** Stop the TUI loop and signal `runTui` to relaunch a fresh bun process in
+   * the same terminal session (after stopping the daemon). Used by the
+   * "new version available" banner after a successful `git pull`. */
+  requestRestart(): void;
   /** Reload config from disk and refresh setup-status. */
   reloadConfig(): void;
 }
