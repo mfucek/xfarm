@@ -1,4 +1,4 @@
-import { stdout } from "node:process";
+import { scrollAnchored } from "./scroll-view.ts";
 import {
   BOLD,
   DIM,
@@ -22,8 +22,11 @@ import {
   renderTweetDetailItem,
 } from "./tweet-detail-items.ts";
 
-export function renderCandidates(cols: number, ctx: RenderCtx): string {
-  const COL_IDX = 3;
+export function renderCandidates(
+  cols: number,
+  bodyRows: number,
+  ctx: RenderCtx,
+): string {
   const COL_AGE = 6;
   const COL_AUTHOR = 20;
   const COL_SCORE = 6;
@@ -31,15 +34,13 @@ export function renderCandidates(cols: number, ctx: RenderCtx): string {
   const COL_LIKES = 7;
   const COL_REPL = 6;
   const COL_FIXED =
-    COL_IDX + 1 + COL_AGE + 1 + COL_AUTHOR + 1 + COL_SCORE + 1 + COL_VEL + 1 +
+    COL_AGE + 1 + COL_AUTHOR + 1 + COL_SCORE + 1 + COL_VEL + 1 +
     COL_LIKES + 1 + COL_REPL + 1;
   const COL_TEXT = Math.max(20, cols - COL_FIXED);
 
   const lines: string[] = [];
   lines.push(
     DIM +
-      padRight("#", COL_IDX) +
-      " " +
       padRight("age", COL_AGE) +
       " " +
       padRight("author", COL_AUTHOR) +
@@ -107,8 +108,6 @@ export function renderCandidates(cols: number, ctx: RenderCtx): string {
 
     lines.push(
       prefix +
-        padRight(String(globalIdx), COL_IDX) +
-        " " +
         padRight(ageStr(r.created_at), COL_AGE) +
         " " +
         padRight(authorCell, COL_AUTHOR) +
@@ -145,17 +144,12 @@ export function renderCandidates(cols: number, ctx: RenderCtx): string {
   // picking a fixed item count — otherwise the total list height jitters as
   // the user scrolls past 2-line rows and the budget either overflows the
   // terminal or leaves dead space at the bottom.
-  const rows = stdout.rows || 24;
-  // Chrome above body: header + blank line. Banner adds 4 (3 border lines +
-  // blank). Below body: footer + 1 line of safety so a transient flash or
-  // input bar doesn't push items off-screen.
-  const chromeAbove = ctx.updateAvailable ? 6 : 2;
-  const chromeBelow = 2;
+  //
   // In-body chrome: column header at top + summary line at bottom (when
   // windowed). We always reserve the summary slot; if the window fits all
   // items we just leave the row unused.
   const bodyChrome = 2;
-  const itemAvail = Math.max(2, rows - chromeAbove - chromeBelow - bodyChrome);
+  const itemAvail = Math.max(2, bodyRows - bodyChrome);
 
   const sel = Math.max(0, Math.min(ctx.selected, total - 1));
   const itemAt = (i: number): TweetRow =>
@@ -227,7 +221,11 @@ export function renderCandidates(cols: number, ctx: RenderCtx): string {
   return lines.join("\n");
 }
 
-export function renderTweetDetail(cols: number, host: TuiHost): string {
+export function renderTweetDetail(
+  cols: number,
+  bodyRows: number,
+  host: TuiHost,
+): string {
   const r = host.detailRow;
   if (!r) return "";
   const width = Math.max(20, Math.min(100, cols - 4));
@@ -240,15 +238,22 @@ export function renderTweetDetail(cols: number, host: TuiHost): string {
   host.tweetDetailCursor = cur;
 
   const out: string[] = [];
+  let curStart = 0;
+  let curEnd = 0;
   const opts = {
     copiedAt: host.tweetDetailCopiedAt,
     busyAction: host.tweetDetailBusyAction,
   };
   items.forEach((it, idx) => {
     if (it.kind === "header" && out.length > 0) out.push("");
-    for (const line of renderTweetDetailItem(it, width, idx === cur, opts)) {
+    const isSel = idx === cur;
+    if (isSel) curStart = out.length;
+    for (const line of renderTweetDetailItem(it, width, isSel, opts)) {
       out.push(line);
     }
+    if (isSel) curEnd = out.length - 1;
   });
-  return out.join("\n");
+
+  const windowed = scrollAnchored(out, bodyRows, curStart, curEnd);
+  return (windowed ?? out).join("\n");
 }

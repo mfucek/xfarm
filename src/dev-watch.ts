@@ -5,6 +5,6 @@
 // Don't use this for prod / `start.sh` — it skips the commander CLI and
 // always runs `watch`. For prod, go through src/cli.ts.
 
-import { runTui } from "./tui.ts";
+import { runTui } from "./tui/run.ts";
 
 await runTui();

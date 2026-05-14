@@ -1,4 +1,3 @@
-import { stdout } from "node:process";
 import { existsSync, readFileSync, statSync } from "node:fs";
 import {
   BOLD,
@@ -194,6 +193,7 @@ function renderSection(
 
 export function renderDebug(
   cols: number,
+  bodyRows: number,
   ctx: RenderCtx,
   items: DebugItem[],
 ): string {
@@ -257,10 +257,7 @@ export function renderDebug(
     if (i < items.length) out.push("");
   }
 
-  // Reserve: header + blank + footer-blank + footer + flash-blank + flash = 6
-  const rows = stdout.rows || 24;
-  const viewRows = Math.max(3, rows - 6);
-  const windowed = scrollAnchored(out, viewRows, curStart, curEnd);
+  const windowed = scrollAnchored(out, bodyRows, curStart, curEnd);
   return (windowed ?? out).join("\n");
 }
 

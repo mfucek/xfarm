@@ -1,4 +1,3 @@
-import { stdout } from "node:process";
 import {
   loadCodexUsage,
   refreshCodexUsageIfStale,
@@ -19,7 +18,11 @@ import {
 import { getConfigItems } from "./config-items.ts";
 import type { RenderCtx, TuiHost } from "./types.ts";
 
-export function renderConfig(cols: number, host: TuiHost): string {
+export function renderConfig(
+  cols: number,
+  bodyRows: number,
+  host: TuiHost,
+): string {
   const items = getConfigItems(host);
   const cur = Math.max(0, Math.min(host.configCursor, items.length - 1));
 
@@ -80,11 +83,9 @@ export function renderConfig(cols: number, host: TuiHost): string {
   });
 
   // Apply same windowing approach as renderDebug.
-  const rows = stdout.rows || 24;
-  const viewRows = Math.max(3, rows - 6);
-  if (out.length <= viewRows) return out.join("\n");
+  if (out.length <= bodyRows) return out.join("\n");
 
-  const innerRows = Math.max(1, viewRows - 1);
+  const innerRows = Math.max(1, bodyRows - 1);
   let offset = 0;
   if (curEnd >= innerRows) offset = curEnd - innerRows + 1;
   if (curStart < offset) offset = curStart;

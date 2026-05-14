@@ -22,7 +22,7 @@ program
   .command("watch")
   .description("Open the live TUI of reply candidates (auto-starts daemon if not running)")
   .action(async () => {
-    const { runTui } = await import("./tui.ts");
+    const { runTui } = await import("./tui/run.ts");
     await runTui();
   });
 

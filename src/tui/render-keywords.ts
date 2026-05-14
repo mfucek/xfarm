@@ -1,4 +1,3 @@
-import { stdout } from "node:process";
 import {
   BOLD,
   DIM,
@@ -39,7 +38,11 @@ function computeWidths(cols: number): ColWidths {
   return { idx, icon, kw, newKw, scanned, reason };
 }
 
-export function renderKeywords(cols: number, ctx: RenderCtx): string {
+export function renderKeywords(
+  cols: number,
+  bodyRows: number,
+  ctx: RenderCtx,
+): string {
   const W = computeWidths(cols);
   const lines: string[] = [];
   const adds = addsCount(ctx.keywordItems);
@@ -76,8 +79,9 @@ export function renderKeywords(cols: number, ctx: RenderCtx): string {
     return lines.join("\n");
   }
 
-  const rows = stdout.rows || 24;
-  const dataRows = Math.max(3, rows - 10);
+  // In-body chrome: summary line + blank + column header (3) + bottom summary
+  // (1, when windowed) = 4 lines.
+  const dataRows = Math.max(3, bodyRows - 4);
   let start = Math.max(0, sel - Math.floor(dataRows / 2));
   let end = Math.min(total, start + dataRows);
   start = Math.max(0, end - dataRows);
@@ -175,7 +179,11 @@ function renderRow(
   );
 }
 
-export function renderKeywordDetail(cols: number, ctx: RenderCtx): string {
+export function renderKeywordDetail(
+  cols: number,
+  bodyRows: number,
+  ctx: RenderCtx,
+): string {
   const it = ctx.detailKeyword;
   if (!it) return "";
   const width = Math.max(20, Math.min(100, cols - 4));
@@ -251,11 +259,9 @@ export function renderKeywordDetail(cols: number, ctx: RenderCtx): string {
     lines.push(DIM + "(no pending suggestion for this keyword)" + RESET);
   }
 
-  // Window the content using detailScroll. The chrome budget matches the
-  // debug page so the header + footers + flash line up.
-  const rows = stdout.rows || 24;
-  const viewRows = Math.max(3, rows - 6);
-  const windowed = scrollFree(lines, viewRows, ctx.detailScroll);
+  // Window the content using detailScroll. Body chrome already accounted for
+  // in bodyRows; the whole detail view is the body.
+  const windowed = scrollFree(lines, bodyRows, ctx.detailScroll);
   if (!windowed) {
     ctx.detailScroll = 0;
     return lines.join("\n");
