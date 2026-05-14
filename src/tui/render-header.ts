@@ -34,7 +34,12 @@ export function renderHeader(cols: number, ctx: RenderCtx): string {
   const kwTab = tab("Keywords", ctx.page === "keywords");
   const cfgTab = tab("Config", ctx.page === "config", setupBad);
   const debugTab = tab("Debug", ctx.page === "debug");
-  const aboutTab = tab("About", ctx.page === "about");
+  // Brand title doubles as the About tab — highlighted when active,
+  // brand-styled otherwise.
+  const title =
+    ctx.page === "about"
+      ? `${REVERSE}${BOLD} xfarm${RESET}${REVERSE} v${VERSION} ${RESET}`
+      : `${BOLD}xfarm${RESET} ${DIM}v${VERSION}${RESET}`;
   const daemon =
     ctx.daemonStatus === "running"
       ? `${FG_GREEN}● daemon ${ctx.daemonPid}${RESET}`
@@ -44,7 +49,7 @@ export function renderHeader(cols: number, ctx: RenderCtx): string {
   const surfStr =
     surf > 0 ? `${FG_YELLOW}${surf}${RESET}` : `${DIM}${surf}${RESET}`;
   const rate = `${surfStr}${DIM}/${scr} last hour${RESET}`;
-  const left = `${BOLD}xfarm${RESET} ${DIM}v${VERSION}${RESET}  ${candTab} ${kwTab} ${cfgTab} ${debugTab} ${aboutTab}`;
+  const left = `${title}  ${candTab} ${kwTab} ${cfgTab} ${debugTab}`;
   const right = `${rate}  ${daemon}`;
   const leftLen = stripAnsi(left).length;
   const rightLen = stripAnsi(right).length;
