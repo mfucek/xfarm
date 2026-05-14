@@ -1,0 +1,48 @@
+#!/usr/bin/env bash
+# Require package.json version bump in the commits being pushed.
+# Compares the version at the local sha against the version at the remote
+# sha for each refspec git is about to push. Allows the first push of a
+# new branch when no main exists to diff against.
+
+set -e
+
+zero='0000000000000000000000000000000000000000'
+
+extract_version() {
+  local sha="$1"
+  git show "$sha:package.json" 2>/dev/null \
+    | sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' \
+    | head -1
+}
+
+while read -r local_ref local_sha remote_ref remote_sha; do
+  if [ "$local_sha" = "$zero" ]; then
+    continue
+  fi
+
+  if [ "$remote_sha" = "$zero" ]; then
+    base=$(git rev-parse --verify --quiet origin/main 2>/dev/null) || base=""
+    if [ -z "$base" ]; then
+      continue
+    fi
+    remote_sha="$base"
+  fi
+
+  local_ver=$(extract_version "$local_sha")
+  remote_ver=$(extract_version "$remote_sha")
+
+  if [ -z "$local_ver" ]; then
+    echo "pre-push: cannot read version from package.json at $local_sha" >&2
+    exit 1
+  fi
+
+  if [ "$local_ver" = "$remote_ver" ]; then
+    echo "" >&2
+    echo "pre-push: package.json version not bumped ($local_ver)." >&2
+    echo "  Bump it (e.g. patch: $local_ver → next) and amend or add a commit, then push again." >&2
+    echo "" >&2
+    exit 1
+  fi
+done
+
+exit 0

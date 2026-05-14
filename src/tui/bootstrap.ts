@@ -54,7 +54,7 @@ export function startVersionCheckPoll(
   onUpdate: (info: { behind: number } | null) => void,
 ): { stop: () => void } {
   let id: ReturnType<typeof setInterval> | null = null;
-  // Upstream check — runs once at startup and then every minute. Silent on
+  // Upstream check — runs once at startup and then every 30s. Silent on
   // every failure mode (no git, no network, no upstream), so the banner
   // only appears when there really is something to pull.
   const poll = async (): Promise<void> => {
@@ -63,7 +63,7 @@ export function startVersionCheckPoll(
     onUpdate(info);
   };
   void poll();
-  id = setInterval(() => void poll(), 60_000);
+  id = setInterval(() => void poll(), 30_000);
   return {
     stop: () => {
       if (id) clearInterval(id);

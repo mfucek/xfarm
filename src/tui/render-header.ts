@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import {
   BOLD,
   DIM,
@@ -9,6 +11,17 @@ import {
   stripAnsi,
 } from "./ansi.ts";
 import type { RenderCtx } from "./types.ts";
+
+const VERSION = ((): string => {
+  try {
+    const pkg = JSON.parse(
+      readFileSync(resolve(import.meta.dir, "../../package.json"), "utf8"),
+    ) as { version?: string };
+    return pkg.version ?? "0.0.0";
+  } catch {
+    return "0.0.0";
+  }
+})();
 
 export function renderHeader(cols: number, ctx: RenderCtx): string {
   const tab = (label: string, active: boolean, badge?: string): string => {
@@ -30,7 +43,7 @@ export function renderHeader(cols: number, ctx: RenderCtx): string {
   const surfStr =
     surf > 0 ? `${FG_YELLOW}${surf}${RESET}` : `${DIM}${surf}${RESET}`;
   const rate = `${surfStr}${DIM}/${scr} last hour${RESET}`;
-  const left = `${BOLD}xfarm${RESET}  ${candTab} ${kwTab} ${cfgTab} ${debugTab}`;
+  const left = `${BOLD}xfarm${RESET} ${DIM}v${VERSION}${RESET}  ${candTab} ${kwTab} ${cfgTab} ${debugTab}`;
   const right = `${rate}  ${daemon}`;
   const leftLen = stripAnsi(left).length;
   const rightLen = stripAnsi(right).length;
