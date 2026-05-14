@@ -18,9 +18,34 @@ export async function runTui(): Promise<void> {
     if (info) {
       tui.updateAvailable = info;
       tui.draw();
+      // Silent auto-update: when the toggle is on and no pull is already in
+      // flight, fire the pull-and-restart flow without any user interaction.
+      // The interactive banner briefly flips to "AUTO-UPDATING…" until the
+      // restart kicks in (or the pull fails, in which case we revert).
+      if (
+        tui.cfg.updater.auto_update &&
+        !tui.autoUpdating &&
+        !tui.shouldRestart
+      ) {
+        tui.autoUpdating = true;
+        tui.bannerSelected = false;
+        tui.draw();
+        void (async () => {
+          const { runGitPull } = await import("../version-check.ts");
+          const r = await runGitPull();
+          if (r.ok) {
+            tui.requestRestart();
+            return;
+          }
+          tui.autoUpdating = false;
+          tui.flash(`auto-update: ${r.message}`, 6000);
+          tui.draw();
+        })();
+      }
     } else if (had) {
       tui.updateAvailable = null;
       tui.bannerSelected = false;
+      tui.bannerButton = 0;
       tui.draw();
     }
   });

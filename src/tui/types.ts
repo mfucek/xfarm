@@ -88,6 +88,14 @@ export interface RenderCtx {
    * "new version available" banner. Enter triggers the pull; Down returns
    * focus to the page. Only meaningful while updateAvailable is non-null. */
   bannerSelected: boolean;
+  /** Which banner CTA has focus while `bannerSelected` is true.
+   * 0 = "Update", 1 = "Enable Auto-Update". Left/Right cycles. */
+  bannerButton: number;
+  /** True while an auto-triggered `git pull` is in flight. The banner
+   * switches to a non-interactive "Auto-updating…" state and key handling
+   * is disabled until the pull completes (success → restart, failure →
+   * back to interactive). */
+  autoUpdating: boolean;
 }
 
 // What handler modules need from the TUI orchestrator. The TUI class

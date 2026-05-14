@@ -119,3 +119,9 @@ storage:
 logging:
   level: INFO
   path: ~/.xfarm/xfarm.log
+
+updater:
+  # When true (default), the app pulls new commits and restarts
+  # automatically within ~30s of them appearing upstream. Set to false
+  # to require pressing the [ Update ] button in the banner manually.
+  auto_update: true

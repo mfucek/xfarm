@@ -160,6 +160,10 @@ const LoggingSchema = z.object({
   path: PathStr.default(expandPath("~/.xfarm/xfarm.log")),
 });
 
+const UpdaterSchema = z.object({
+  auto_update: z.boolean().default(true),
+});
+
 const ConfigSchema = z.object({
   scraper: ScraperSchema,
   watchlist: WatchlistSchema.default({ scan_interval_sec: 60, authors: [] }),
@@ -194,6 +198,7 @@ const ConfigSchema = z.object({
     level: "INFO",
     path: expandPath("~/.xfarm/xfarm.log"),
   }),
+  updater: UpdaterSchema.default({ auto_update: true }),
 });
 
 export type Config = z.infer<typeof ConfigSchema>;

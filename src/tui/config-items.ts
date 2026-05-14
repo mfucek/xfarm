@@ -221,6 +221,21 @@ export function getConfigItems(host: TuiHost): ConfigItem[] {
     },
   });
 
+  items.push({ kind: "header", id: "h-updater", label: "Updates" });
+  items.push({
+    kind: "toggle",
+    id: "auto_update",
+    label: "auto-update",
+    value: cfg.updater.auto_update ? "on" : "off",
+    hint: "When on, the app pulls new commits and restarts automatically.",
+    run: async (h) => {
+      const next = !cfg.updater.auto_update;
+      patchConfigFile({ updater: { auto_update: next } });
+      h.reloadConfig();
+      return `auto-update → ${next ? "on" : "off"}`;
+    },
+  });
+
   items.push({ kind: "header", id: "h-notifier", label: "Notifications" });
   items.push({
     kind: "toggle",

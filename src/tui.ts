@@ -95,6 +95,8 @@ export class TUI implements TuiHost {
   setupStatus: SetupStatus | null = null;
   updateAvailable: { behind: number } | null = null;
   bannerSelected = false;
+  bannerButton = 0;
+  autoUpdating = false;
 
   private inputResolver: ((value: string | null) => void) | null = null;
   private stopFlag = false;
@@ -351,6 +353,7 @@ export class TUI implements TuiHost {
         this.page = target;
         this.selected = 0;
         this.bannerSelected = false;
+        this.bannerButton = 0;
         this.refresh();
         this.draw();
       }
