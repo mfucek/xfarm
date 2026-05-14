@@ -37,11 +37,10 @@ to the user — don't silently leave the warning unaddressed.
 ## Version bumps: every push bumps `package.json#version`
 
 Every push to `origin` must include a bump of the `version` field in
-`package.json`. The `.githooks/pre-push` hook (wired via
-`core.hooksPath = .githooks`) rejects any push whose local `version`
-matches the remote's — but **don't wait for the hook to catch it**.
-When the user asks to push, bump the version first, include the bump in
-the same commit as the change (or as a separate tip commit), then push.
+`package.json`. **There is no git hook enforcing this** — the agent is
+solely responsible. When the user asks to push, bump the version first,
+include the bump in the same commit as the change (or as a separate tip
+commit), then push.
 
 Pick the bump level by the nature of the change:
 
