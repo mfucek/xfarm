@@ -243,6 +243,7 @@ export function renderTweetDetail(
   const opts = {
     copiedAt: host.tweetDetailCopiedAt,
     busyAction: host.tweetDetailBusyAction,
+    judgeStatus: host.tweetDetailJudgeStatus,
   };
   items.forEach((it, idx) => {
     if (it.kind === "header" && out.length > 0) out.push("");

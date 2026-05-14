@@ -114,8 +114,19 @@ export class DB {
     reason: string,
     angle: string,
     pitchBullets: string[],
+    context: string,
+    links: string[],
   ): void {
-    tweets.markJudged(this.db, id, score, reason, angle, pitchBullets);
+    tweets.markJudged(
+      this.db,
+      id,
+      score,
+      reason,
+      angle,
+      pitchBullets,
+      context,
+      links,
+    );
   }
   markNotified(id: string): void {
     tweets.markNotified(this.db, id);

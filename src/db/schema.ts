@@ -20,6 +20,8 @@ CREATE TABLE IF NOT EXISTS tweets (
     llm_reason            TEXT,
     llm_angle             TEXT,
     llm_pitch             TEXT,
+    llm_context           TEXT,
+    llm_links             TEXT,
     notified_at           TEXT,
     seen_at               TEXT,
     replied_at            TEXT,
@@ -89,6 +91,14 @@ const MIGRATIONS: { name: string; sql: string }[] = [
   {
     name: "tweets.hidden_at",
     sql: "ALTER TABLE tweets ADD COLUMN hidden_at TEXT",
+  },
+  {
+    name: "tweets.llm_context",
+    sql: "ALTER TABLE tweets ADD COLUMN llm_context TEXT",
+  },
+  {
+    name: "tweets.llm_links",
+    sql: "ALTER TABLE tweets ADD COLUMN llm_links TEXT",
   },
 ];
 

@@ -91,6 +91,7 @@ export class TUI implements TuiHost {
   tweetDetailCursor = 0;
   tweetDetailCopiedAt: number | null = null;
   tweetDetailBusyAction: string | null = null;
+  tweetDetailJudgeStatus: string | null = null;
   setupStatus: SetupStatus | null = null;
   updateAvailable: { behind: number } | null = null;
   bannerSelected = false;

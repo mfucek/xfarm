@@ -76,12 +76,16 @@ export function markJudged(
   reason: string,
   angle: string,
   pitchBullets: string[],
+  context: string,
+  links: string[],
 ): void {
   const pitchJson =
     pitchBullets.length > 0 ? JSON.stringify(pitchBullets) : null;
+  const contextValue = context.trim().length > 0 ? context.trim() : null;
+  const linksJson = links.length > 0 ? JSON.stringify(links) : null;
   db.prepare(
-    "UPDATE tweets SET llm_score=?, llm_reason=?, llm_angle=?, llm_pitch=? WHERE id=?",
-  ).run(score, reason, angle, pitchJson, id);
+    "UPDATE tweets SET llm_score=?, llm_reason=?, llm_angle=?, llm_pitch=?, llm_context=?, llm_links=? WHERE id=?",
+  ).run(score, reason, angle, pitchJson, contextValue, linksJson, id);
 }
 
 export function markNotified(db: Database, id: string): void {

@@ -19,6 +19,22 @@ export type Tool = {
   description: string;
   parameters: JsonSchema;
   handler: (args: Record<string, unknown>) => Promise<string>;
+  /** Short progress label shown in the TUI while this tool is running, e.g.
+   * "Asking Naumu…". Falls back to a generic label when omitted. */
+  progressLabel?: string;
+};
+
+/** Stream of progress states emitted while the agentic loop runs. The TUI
+ * uses these to render "judging… <status>" — the daemon ignores them. */
+export type StatusCallback = (status: string) => void;
+
+export type AgenticOptions = {
+  maxIterations?: number;
+  onStatus?: StatusCallback;
+  /** Prefix prepended to every log line emitted from inside the agentic
+   * loop (e.g. "tweet=1a2b3c…"). Lets one log file correlate lines back to
+   * the tweet that triggered them. */
+  logPrefix?: string;
 };
 
 export interface LlmClient {
@@ -41,6 +57,6 @@ export interface LlmClient {
     prompt: string,
     schema: JsonSchema,
     tools: Tool[],
-    maxIterations?: number,
+    opts?: AgenticOptions,
   ): Promise<T>;
 }

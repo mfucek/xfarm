@@ -4,12 +4,16 @@ import type { DB } from "../db.ts";
 import { sleep } from "../scraper/rate-limit.ts";
 import type { JudgeResult, TweetRow } from "../types.ts";
 import { CodexClient } from "./codex-client.ts";
-import type { JsonSchema, LlmClient, Tool } from "./llm.ts";
+import type { JsonSchema, LlmClient, StatusCallback, Tool } from "./llm.ts";
+import { JUDGE_LOG_PATH, logJudge, logTrunc } from "./log.ts";
 import type { NaumuMcpClient } from "./naumu-mcp.ts";
 import { VertexClient } from "./vertex-client.ts";
+import { WebSearchClient } from "./web-search.ts";
+
+export { JUDGE_LOG_PATH } from "./log.ts";
 
 export { resolveCredentialsPath } from "./vertex-client.ts";
-export type { LlmClient } from "./llm.ts";
+export type { LlmClient, StatusCallback } from "./llm.ts";
 
 /** Build the LLM client matching cfg.judge.provider. */
 export function makeLlmClient(cfg: Config): LlmClient {
@@ -20,24 +24,37 @@ export function makeLlmClient(cfg: Config): LlmClient {
 
 const JUDGE_SCHEMA: JsonSchema = {
   type: "object",
-  required: ["score", "reason", "suggested_angle", "pitch_bullets"],
+  required: [
+    "score",
+    "reason",
+    "suggested_angle",
+    "pitch_bullets",
+    "context",
+    "links",
+  ],
   properties: {
     score: { type: "number" },
     reason: { type: "string" },
     suggested_angle: { type: "string" },
     pitch_bullets: { type: "array", items: { type: "string" } },
+    context: { type: "string" },
+    links: { type: "array", items: { type: "string" } },
   },
 };
+
+const MAX_LINKS = 3;
 
 export class Judge {
   private template: string | null = null;
   private llm: LlmClient;
+  private webSearch: WebSearchClient;
 
   constructor(
     private cfg: Config,
     private naumu: NaumuMcpClient | null = null,
   ) {
     this.llm = makeLlmClient(cfg);
+    this.webSearch = new WebSearchClient();
   }
 
   private getTemplate(): string {
@@ -78,44 +95,127 @@ export class Judge {
         properties: { question: { type: "string" } },
       },
       handler: async (args) => naumu.ask(String(args.question ?? "")),
+      progressLabel: "Asking Naumu…",
     };
   }
 
-  async judgeOne(t: TweetRow): Promise<JudgeResult> {
+  private buildWebSearchTool(): Tool {
+    return {
+      name: "web_search",
+      description:
+        "Search the public web (DuckDuckGo) for a query and return the top 5 result titles, URLs, and snippets. Use this to research unknown entities mentioned in the tweet — apps, startups, products, people — so you can populate the `context` field and tailor reply ideas. Set `fetch_pages: true` to also pull readable text from the top 3 pages when snippets aren't enough (slower, ~6s). Limit to 2 calls per tweet; skip entirely for off-domain or low-score posts.",
+      parameters: {
+        type: "object",
+        required: ["query"],
+        properties: {
+          query: { type: "string" },
+          fetch_pages: { type: "boolean" },
+        },
+      },
+      handler: async (args) =>
+        this.webSearch.search(String(args.query ?? ""), {
+          fetchPages: Boolean(args.fetch_pages),
+        }),
+      progressLabel: "Browsing the web…",
+    };
+  }
+
+  async judgeOne(
+    t: TweetRow,
+    opts: { onStatus?: StatusCallback } = {},
+  ): Promise<JudgeResult> {
     const prompt = this.render(t);
+    const logPrefix = `tweet=${t.id.slice(0, 12)} @${t.author}`;
+    logJudge(
+      "info",
+      `${logPrefix} start (text="${logTrunc(t.text.replace(/\s+/g, " "), 100)}")`,
+    );
+    const startedAt = Date.now();
+    // Wrap onStatus so every progress emission also lands in the log file.
+    // Same string the TUI shows, plus the tweet prefix so users can grep.
+    const wrappedStatus: StatusCallback = (s) => {
+      logJudge("info", `${logPrefix} status="${s}"`);
+      opts.onStatus?.(s);
+    };
+    // Emit a baseline "Thinking…" before the provider call so the TUI's
+    // status (which may still be saying "Connecting to Naumu…" from
+    // runTestJudge) flips to the active stage immediately. The agentic loop
+    // emits its own "Thinking…" too — duplicate is harmless.
+    wrappedStatus("Thinking…");
     try {
-      const naumuTool = this.buildNaumuTool();
-      const useAgentic =
-        naumuTool != null &&
-        this.naumu?.ready === true &&
+      // Tools only have an effect when the provider supports function
+      // calling. Build them lazily so the log doesn't claim ask_naumu /
+      // web_search are in play when we're really going one-shot.
+      const supportsAgentic =
         typeof this.llm.generateJsonAgentic === "function";
+      const naumuTool = supportsAgentic ? this.buildNaumuTool() : null;
+      const naumuReady = naumuTool != null && this.naumu?.ready === true;
+      const tools: Tool[] = [];
+      if (supportsAgentic) {
+        if (naumuReady && naumuTool) tools.push(naumuTool);
+        tools.push(this.buildWebSearchTool());
+      }
+      const useAgentic = supportsAgentic && tools.length > 0;
+      const modeNote = !supportsAgentic
+        ? " (provider has no agentic path)"
+        : naumuReady
+          ? ""
+          : " (naumu off)";
+      logJudge(
+        "info",
+        `${logPrefix} mode=${useAgentic ? "agentic" : "one-shot"} tools=[${tools.map((x) => x.name).join(",")}]${modeNote}`,
+      );
+      // Budget: naumu may want up to its configured max, plus a couple of
+      // web searches, plus the final-output turn. Cap loosely.
+      const maxIterations =
+        (naumuReady ? this.cfg.judge.naumu.max_tool_calls : 0) + 3;
       const data = useAgentic
         ? await this.llm.generateJsonAgentic!<JudgeResult>(
             prompt,
             JUDGE_SCHEMA,
-            [naumuTool!],
-            this.cfg.judge.naumu.max_tool_calls + 1,
+            tools,
+            { maxIterations, onStatus: wrappedStatus, logPrefix },
           )
         : await this.llm.generateJson<JudgeResult>(prompt, JUDGE_SCHEMA);
       if (typeof data.score !== "number") throw new Error("score not number");
       const bullets = Array.isArray(data.pitch_bullets)
         ? data.pitch_bullets.filter((b) => typeof b === "string" && b.trim())
         : [];
+      const context =
+        typeof data.context === "string" ? data.context.trim() : "";
+      const links = Array.isArray(data.links)
+        ? data.links
+            .filter(
+              (l): l is string =>
+                typeof l === "string" && /^https?:\/\//i.test(l.trim()),
+            )
+            .map((l) => l.trim())
+            .slice(0, MAX_LINKS)
+        : [];
+      logJudge(
+        "info",
+        `${logPrefix} done in ${Date.now() - startedAt}ms score=${data.score.toFixed(1)} bullets=${bullets.length} ctx=${context.length}c links=${links.length} reason="${logTrunc(data.reason ?? "", 120)}"`,
+      );
       return {
         score: data.score,
         reason: data.reason ?? "",
         suggested_angle: data.suggested_angle ?? "",
         pitch_bullets: bullets,
+        context,
+        links,
       };
     } catch (e) {
-      console.warn(
-        `[judge] bad response for id=${t.id}: ${(e as Error).message}`,
+      logJudge(
+        "error",
+        `${logPrefix} parse_error in ${Date.now() - startedAt}ms: ${(e as Error).message}`,
       );
       return {
         score: 0,
         reason: "parse_error",
         suggested_angle: "",
         pitch_bullets: [],
+        context: "",
+        links: [],
       };
     }
   }
@@ -142,15 +242,15 @@ export async function judgeLoop(
           r.reason,
           r.suggested_angle,
           r.pitch_bullets,
-        );
-        console.log(
-          `[judge] @${t.author} id=${t.id.slice(0, 12)} -> ${r.score.toFixed(
-            1,
-          )} (${r.reason.slice(0, 80)})`,
+          r.context,
+          r.links,
         );
       } catch (e) {
-        console.error(`[judge] error on id=${t.id}:`, e);
-        db.markJudged(t.id, 0, "judge_error", "", []);
+        logJudge(
+          "error",
+          `tweet=${t.id.slice(0, 12)} @${t.author} fatal: ${(e as Error).message}`,
+        );
+        db.markJudged(t.id, 0, "judge_error", "", [], "", []);
       }
       await sleep(500);
     }

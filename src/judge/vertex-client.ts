@@ -11,7 +11,8 @@ import {
   Type,
 } from "@google/genai";
 import type { Config } from "../config.ts";
-import type { JsonSchema, LlmClient, Tool } from "./llm.ts";
+import type { AgenticOptions, JsonSchema, LlmClient, Tool } from "./llm.ts";
+import { logJudge, logTrunc } from "./log.ts";
 
 /**
  * Resolve Vertex credentials. Priority:
@@ -94,14 +95,20 @@ export class VertexClient implements LlmClient {
     prompt: string,
     schema: JsonSchema,
     tools: Tool[],
-    maxIterations = 5,
+    opts: AgenticOptions = {},
   ): Promise<T> {
+    const maxIterations = opts.maxIterations ?? 5;
+    const onStatus = opts.onStatus;
+    const logPrefix = opts.logPrefix ? `${opts.logPrefix} ` : "";
     const declarations: FunctionDeclaration[] = tools.map((t) => ({
       name: t.name,
       description: t.description,
       parameters: toGenAiSchema(t.parameters) as never,
     }));
     const handlers = new Map(tools.map((t) => [t.name, t.handler]));
+    const progressLabels = new Map(
+      tools.map((t) => [t.name, t.progressLabel ?? `Calling ${t.name}…`]),
+    );
     const toolConfig: GenAiTool[] = [{ functionDeclarations: declarations }];
 
     const contents: Content[] = [
@@ -112,12 +119,19 @@ export class VertexClient implements LlmClient {
     // are bound, so we let the model freely call tools and emit prose; the
     // final structured response comes from a separate call below.
     for (let iter = 0; iter < maxIterations; iter++) {
+      onStatus?.("Thinking…");
+      logJudge("info", `${logPrefix}iter=${iter} thinking…`);
+      const turnStart = Date.now();
       const resp = await this.ai.models.generateContent({
         model: this.cfg.judge.model,
         contents,
         config: { tools: toolConfig },
       });
       const calls: FunctionCall[] = resp.functionCalls ?? [];
+      logJudge(
+        "info",
+        `${logPrefix}iter=${iter} thinking done in ${Date.now() - turnStart}ms (${calls.length} tool calls)`,
+      );
       if (calls.length === 0) break;
 
       // Echo the model's tool-call parts back into history so it sees what
@@ -133,15 +147,23 @@ export class VertexClient implements LlmClient {
         let result: string;
         if (!handler) {
           result = `<no handler registered for tool ${name}>`;
+          logJudge("warn", `${logPrefix}tool=${name} <no handler>`);
         } else {
           try {
-            console.log(
-              `[judge] tool ${name}(${JSON.stringify(args).slice(0, 120)})`,
+            onStatus?.(progressLabels.get(name) ?? `Calling ${name}…`);
+            const toolStart = Date.now();
+            logJudge(
+              "info",
+              `${logPrefix}tool=${name} args=${logTrunc(JSON.stringify(args), 200)}`,
             );
             result = await handler(args);
-            console.log(`[judge] tool ${name} -> ${result.slice(0, 120)}`);
+            logJudge(
+              "info",
+              `${logPrefix}tool=${name} done in ${Date.now() - toolStart}ms result=${logTrunc(result, 240)}`,
+            );
           } catch (e) {
             result = `<tool-error: ${(e as Error).message}>`;
+            logJudge("error", `${logPrefix}tool=${name} threw: ${(e as Error).message}`);
           }
         }
         responseParts.push({
@@ -167,6 +189,9 @@ export class VertexClient implements LlmClient {
         },
       ],
     });
+    onStatus?.("Finalizing…");
+    logJudge("info", `${logPrefix}finalizing…`);
+    const finalStart = Date.now();
     const finalResp = await this.ai.models.generateContent({
       model: this.cfg.judge.model,
       contents,
@@ -176,6 +201,10 @@ export class VertexClient implements LlmClient {
       },
     });
     const txt = finalResp.text ?? "";
+    logJudge(
+      "info",
+      `${logPrefix}finalize done in ${Date.now() - finalStart}ms (${txt.length} chars)`,
+    );
     return JSON.parse(txt) as T;
   }
 }

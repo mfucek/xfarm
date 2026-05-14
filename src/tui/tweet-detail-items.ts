@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import { Judge } from "../judge/index.ts";
+import { Judge, JUDGE_LOG_PATH } from "../judge/index.ts";
 import { isNaumuEnabled, NaumuMcpClient } from "../judge/naumu-mcp.ts";
 import {
   BOLD,
@@ -10,7 +10,7 @@ import {
   RESET,
   ageStr,
   likesPerHour,
-  parsePitchBullets,
+  parseStringArrayColumn,
   wrapText,
 } from "./ansi.ts";
 import { renderBox } from "./box.ts";
@@ -60,6 +60,7 @@ export function getTweetDetailItems(
         `  ${DIM}score${RESET} ${score}` +
         `  ${DIM}l/hr${RESET} ${velocity}` +
         `  ${DIM}likes${RESET} ${r.likes ?? 0}`,
+      `${DIM}${formatSource(r.source)}${RESET}`,
       DIM + r.url + RESET,
     ],
   });
@@ -68,21 +69,13 @@ export function getTweetDetailItems(
   items.push({
     kind: "action",
     label: "open tweet",
-    hint: "default browser · marks as seen",
-    run: (h) => {
-      spawn("open", [r.url], { stdio: "ignore", detached: true }).unref();
-      if (r.seen_at == null) {
-        h.db.markSeen(r.id);
-        r.seen_at = new Date().toISOString();
-      }
-      h.flash(`opened ${r.url}`);
-    },
+    hint: "default browser · marks as seen · shortcut: o",
+    run: (h) => openTweet(h, r),
   });
   items.push({
     kind: "action",
     label: "judge again",
-    hint:
-      "re-run the LLM judge on this tweet and overwrite its score / angle / reply ideas",
+    hint: `re-run the LLM judge · live log: ${JUDGE_LOG_PATH}`,
     run: (h) => runTestJudge(h, r),
   });
 
@@ -93,30 +86,106 @@ export function getTweetDetailItems(
     bordered: true,
   });
 
-  if (r.llm_angle) {
+  // Only render the four LLM sections once the tweet has been judged at
+  // least once. Pre-judge tweets stay terse (no rows full of dashes); after
+  // judging we render all four headers with a "-" placeholder for empty
+  // ones so the page shape is consistent across tweets.
+  const isJudged = r.llm_score != null;
+  if (isJudged) {
     items.push({ kind: "header", label: "angle", color: FG_GREEN });
-    items.push({
-      kind: "text",
-      lines: wrapText(r.llm_angle, width),
-      color: FG_GREEN,
-    });
-  }
-
-  const pitches = parsePitchBullets(r.llm_pitch);
-  if (pitches.length > 0) {
-    items.push({ kind: "header", label: "reply ideas", color: FG_GREEN });
-    for (const p of pitches) {
+    if (r.llm_angle) {
       items.push({
-        kind: "bullet",
-        lines: wrapText(p, Math.max(10, width - 2)),
-        raw: p,
+        kind: "text",
+        lines: wrapText(r.llm_angle, width),
         color: FG_GREEN,
-        copyHint: "Enter to copy",
       });
+    } else {
+      items.push({ kind: "text", lines: ["-"], color: FG_GREEN });
+    }
+
+    items.push({ kind: "header", label: "context" });
+    if (r.llm_context) {
+      items.push({ kind: "text", lines: wrapText(r.llm_context, width) });
+    } else {
+      items.push({ kind: "text", lines: ["-"] });
+    }
+
+    items.push({ kind: "header", label: "links" });
+    const links = parseStringArrayColumn(r.llm_links);
+    if (links.length > 0) {
+      for (const link of links) {
+        items.push({
+          kind: "action",
+          label: linkHostLabel(link),
+          hint: link,
+          run: (h) => openLink(h, link),
+        });
+      }
+    } else {
+      items.push({ kind: "text", lines: ["-"] });
+    }
+
+    items.push({ kind: "header", label: "reply ideas", color: FG_GREEN });
+    const pitches = parseStringArrayColumn(r.llm_pitch);
+    if (pitches.length > 0) {
+      for (const p of pitches) {
+        items.push({
+          kind: "bullet",
+          lines: wrapText(p, Math.max(10, width - 2)),
+          raw: p,
+          color: FG_GREEN,
+          copyHint: "Enter to copy",
+        });
+      }
+    } else {
+      items.push({ kind: "text", lines: ["-"], color: FG_GREEN });
     }
   }
 
   return items;
+}
+
+/** Open a URL emitted in a tweet's `llm_links` array in the default browser.
+ * Mirrors openTweet's spawn shape, but doesn't touch seen_at — these are
+ * external entity URLs (e.g. an app's homepage), not the tweet itself. */
+function openLink(host: TuiHost, url: string): void {
+  spawn("open", [url], { stdio: "ignore", detached: true }).unref();
+  host.flash(`opened ${url}`);
+}
+
+/** Action-row label for a link: bare hostname (e.g. "example.com") so the
+ * cursor row stays short. Full URL renders as the dim hint via the existing
+ * action renderer. Falls back to the raw string when URL parsing fails. */
+function linkHostLabel(url: string): string {
+  try {
+    return new URL(url).hostname;
+  } catch {
+    return url;
+  }
+}
+
+/** Open the tweet's URL in the default browser and mark it seen if it wasn't
+ * already. Shared between the "open tweet" action row and the `o` shortcut on
+ * the tweet-detail page. */
+export function openTweet(host: TuiHost, r: TweetRow): void {
+  spawn("open", [r.url], { stdio: "ignore", detached: true }).unref();
+  if (r.seen_at == null) {
+    host.db.markSeen(r.id);
+    r.seen_at = new Date().toISOString();
+  }
+  host.flash(`opened ${r.url}`);
+}
+
+/** Render the `tweets.source` column as a short "via …" line. Sources today:
+ * `keyword:<q>` (keyword search), `watchlist` (author scan), `feed:home`,
+ * `test`. Unknown values pass through verbatim. */
+function formatSource(source: string): string {
+  if (source.startsWith("keyword:")) {
+    return `via keyword "${source.slice("keyword:".length)}"`;
+  }
+  if (source === "watchlist") return "via watchlist";
+  if (source === "feed:home") return "via home feed";
+  return `via ${source}`;
 }
 
 // Standard braille spinner. 80ms per frame ≈ 12.5fps — readable, not seizure-y.
@@ -129,7 +198,11 @@ export function renderTweetDetailItem(
   it: TweetDetailItem,
   width: number,
   selected: boolean,
-  opts: { copiedAt?: number | null; busyAction?: string | null } = {},
+  opts: {
+    copiedAt?: number | null;
+    busyAction?: string | null;
+    judgeStatus?: string | null;
+  } = {},
 ): string[] {
   const prefix = selected ? `${FG_CYAN}│${RESET} ` : "  ";
 
@@ -169,7 +242,12 @@ export function renderTweetDetailItem(
   if (isBusy) {
     // Replace the label with the spinner so the user's eye stays on the row
     // they pressed Enter on; suppress the hint so the row stays compact.
-    const text = `${FG_CYAN}judging… ${spinnerFrame()}${RESET}`;
+    // When the agentic loop reports a step ("Thinking…", "Browsing the
+    // web…", "Asking Naumu…"), wedge it between "judging…" and the spinner
+    // so the user can see what's actually happening.
+    const step = opts.judgeStatus?.trim();
+    const stepText = step ? ` ${DIM}${step}${RESET}` : "";
+    const text = `${FG_CYAN}judging…${stepText} ${FG_CYAN}${spinnerFrame()}${RESET}`;
     return [`${prefix}${marker} ${text}`];
   }
   const bracketed = `[ ${it.label} ]`;
@@ -191,11 +269,14 @@ async function runTestJudge(host: TuiHost, r: TweetRow): Promise<void> {
   // <spinner>". The TUI's own redraw loop ticks once a second, which is too
   // slow for a smooth spinner — drive an extra 100ms timer until we're done.
   host.tweetDetailBusyAction = "judge again";
+  host.tweetDetailJudgeStatus = "Warming up…";
   host.draw();
   const spinnerTimer = setInterval(() => host.draw(), 100);
 
   const naumu = isNaumuEnabled(host.cfg) ? new NaumuMcpClient(host.cfg) : null;
   if (naumu) {
+    host.tweetDetailJudgeStatus = "Connecting to Naumu…";
+    host.draw();
     const connectPromise = naumu.connect();
     const timeout = new Promise<void>((resolve) => setTimeout(resolve, 5000));
     await Promise.race([connectPromise, timeout]);
@@ -203,13 +284,20 @@ async function runTestJudge(host: TuiHost, r: TweetRow): Promise<void> {
 
   try {
     const judge = new Judge(host.cfg, naumu);
-    const result = await judge.judgeOne(r);
+    const result = await judge.judgeOne(r, {
+      onStatus: (s) => {
+        host.tweetDetailJudgeStatus = s;
+        // Spinner timer already redraws every 100ms; no need to draw here.
+      },
+    });
     host.db.markJudged(
       r.id,
       result.score,
       result.reason,
       result.suggested_angle,
       result.pitch_bullets,
+      result.context,
+      result.links,
     );
     r.llm_score = result.score;
     r.llm_reason = result.reason;
@@ -218,6 +306,9 @@ async function runTestJudge(host: TuiHost, r: TweetRow): Promise<void> {
       result.pitch_bullets.length > 0
         ? JSON.stringify(result.pitch_bullets)
         : null;
+    r.llm_context = result.context || null;
+    r.llm_links =
+      result.links.length > 0 ? JSON.stringify(result.links) : null;
     host.flash(
       `judged: score=${result.score.toFixed(1)} (${result.reason.slice(0, 60)})`,
       6000,
@@ -227,6 +318,7 @@ async function runTestJudge(host: TuiHost, r: TweetRow): Promise<void> {
   } finally {
     clearInterval(spinnerTimer);
     host.tweetDetailBusyAction = null;
+    host.tweetDetailJudgeStatus = null;
     if (naumu) {
       try {
         await naumu.close();

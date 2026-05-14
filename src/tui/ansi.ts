@@ -39,7 +39,10 @@ export const truncVisible = (s: string, n: number): string => {
   return oneLine.slice(0, Math.max(0, n - 1)) + "…";
 };
 
-export const parsePitchBullets = (raw: string | null): string[] => {
+/** Parse a TEXT column that stores a JSON-encoded array of strings (used for
+ * `llm_pitch` and `llm_links`). Filters out non-strings and empty entries so
+ * callers can iterate without re-validating. */
+export const parseStringArrayColumn = (raw: string | null): string[] => {
   if (!raw) return [];
   try {
     const parsed = JSON.parse(raw);
@@ -51,6 +54,9 @@ export const parsePitchBullets = (raw: string | null): string[] => {
     return [];
   }
 };
+
+/** @deprecated Prefer parseStringArrayColumn — kept for existing call sites. */
+export const parsePitchBullets = parseStringArrayColumn;
 
 export const wrapText = (s: string, width: number): string[] => {
   if (width <= 0) return [s];

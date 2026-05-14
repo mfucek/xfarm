@@ -4,6 +4,7 @@ import {
   StdioClientTransport,
 } from "@modelcontextprotocol/sdk/client/stdio.js";
 import type { Config } from "../config.ts";
+import { logJudge } from "./log.ts";
 
 /**
  * MCP client for the naumu graph. The `@naumu/mcp` package is a stdio
@@ -50,8 +51,9 @@ export class NaumuMcpClient {
     const apiKey = n.api_key.trim();
     const graphId = n.graph_id.trim();
     if (!apiKey || !graphId) {
-      console.warn(
-        "[judge] naumu MCP enabled but api_key or graph_id is empty; staying offline.",
+      logJudge(
+        "warn",
+        "naumu MCP enabled but api_key or graph_id is empty; staying offline.",
       );
       this.connecting = false;
       return;
@@ -81,13 +83,15 @@ export class NaumuMcpClient {
       this.client = client;
       this.transport = transport;
       this.retryDelayMs = 5000;
-      console.log(
-        `[judge] naumu MCP connected (pid=${transport.pid ?? "?"}, graph=${graphId.slice(0, 8)}…)`,
+      logJudge(
+        "info",
+        `naumu MCP connected (pid=${transport.pid ?? "?"}, graph=${graphId.slice(0, 8)}…)`,
       );
     } catch (e) {
       const delaySec = Math.round(this.retryDelayMs / 1000);
-      console.warn(
-        `[judge] naumu MCP unavailable: ${(e as Error).message}; retrying in ${delaySec}s`,
+      logJudge(
+        "warn",
+        `naumu MCP unavailable: ${(e as Error).message}; retrying in ${delaySec}s`,
       );
       this.scheduleRetry();
     } finally {
@@ -157,7 +161,7 @@ export class NaumuMcpClient {
       return "<naumu-error: timed out waiting for agent response>";
     } catch (e) {
       const msg = (e as Error).message ?? String(e);
-      console.warn(`[judge] naumu ask error: ${msg}`);
+      logJudge("warn", `naumu ask error: ${msg}`);
       // Transport-level failures (subprocess died, pipe closed) — drop the
       // client so the next connect() rebuilds it.
       if (/closed|EPIPE|ECONN|exited|aborted/i.test(msg)) {

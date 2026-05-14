@@ -77,6 +77,9 @@ export interface RenderCtx {
    * "judging… <spinner>" instead of its normal text. The action that sets
    * this should also kick a fast redraw timer so the spinner animates. */
   tweetDetailBusyAction: string | null;
+  /** Latest progress step emitted by the judge agentic loop, e.g.
+   * "Thinking…" or "Browsing the web…". Rendered next to the spinner. */
+  tweetDetailJudgeStatus: string | null;
   setupStatus: SetupStatus | null;
   /** Set when `git fetch` reveals upstream commits we don't have yet. The
    * header renders a "new version available" banner while this is non-null. */
