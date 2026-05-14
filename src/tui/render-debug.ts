@@ -305,7 +305,7 @@ export function renderActivityChart(
   const max = Math.max(1, ...scr);
   const scrLine = scr
     .map((n) => {
-      if (n === 0) return DIM + "·" + RESET;
+      if (n === 0) return DIM + "▁" + RESET;
       const idx = Math.min(
         blocks.length - 1,
         Math.max(0, Math.ceil((n / max) * blocks.length) - 1),
@@ -314,7 +314,7 @@ export function renderActivityChart(
     })
     .join("");
   const surLine = sur
-    .map((n) => (n > 0 ? FG_YELLOW + "*" + RESET : DIM + "·" + RESET))
+    .map((n) => (n > 0 ? FG_YELLOW + "*" + RESET : DIM + "▁" + RESET))
     .join("");
 
   const minutesShown = scr.length;
