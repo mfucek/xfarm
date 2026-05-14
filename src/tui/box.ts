@@ -1,4 +1,4 @@
-import { FG_GRAY, RESET, stripAnsi } from "./ansi.ts";
+import { DIM, FG_GRAY, RESET, stripAnsi } from "./ansi.ts";
 
 /**
  * Render a bordered text box around `lines`. `width` is the total outer
@@ -29,4 +29,52 @@ export function renderBox(
   }
   out.push(bot);
   return out;
+}
+
+/**
+ * Render a horizontally-divided stat card: a single bordered row with
+ * vertical separators between cells. Each cell gets a dim label above its
+ * value. Cell widths are distributed evenly across the available inner
+ * width; any leftover characters are padded onto the last cell so the
+ * border lines up flush with `width`.
+ */
+export function renderDividedCard(
+  cells: { label: string; value: string }[],
+  width: number,
+  color: string = FG_GRAY,
+): string[] {
+  if (cells.length === 0) return [];
+  const n = cells.length;
+  // Inner area = width - 2 (left + right border). Subtract n-1 internal
+  // separators; the rest is divided evenly among cells.
+  const innerTotal = Math.max(n, width - 2 - (n - 1));
+  const baseCellW = Math.max(3, Math.floor(innerTotal / n));
+  const widths = new Array(n).fill(baseCellW);
+  const leftover = innerTotal - baseCellW * n;
+  if (leftover > 0) widths[n - 1] += leftover;
+
+  const top = `${color}┌${widths.map((w) => "─".repeat(w)).join("┬")}┐${RESET}`;
+  const bot = `${color}└${widths.map((w) => "─".repeat(w)).join("┴")}┘${RESET}`;
+  const sep = `${color}│${RESET}`;
+
+  const renderRow = (texts: string[], style: string): string => {
+    const segs = texts.map((t, i) => {
+      const w = widths[i] ?? baseCellW;
+      const inner = Math.max(0, w - 2);
+      const visible = stripAnsi(t).length;
+      const content =
+        visible > inner
+          ? t.slice(0, inner)
+          : t + " ".repeat(inner - visible);
+      return ` ${style}${content}${RESET} `;
+    });
+    return sep + segs.join(sep) + sep;
+  };
+
+  return [
+    top,
+    renderRow(cells.map((c) => c.label), DIM),
+    renderRow(cells.map((c) => c.value), ""),
+    bot,
+  ];
 }

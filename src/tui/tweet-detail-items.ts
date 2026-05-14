@@ -6,14 +6,16 @@ import {
   DIM,
   FG_CYAN,
   FG_GREEN,
+  FG_RED,
   FG_WHITE,
+  FG_YELLOW,
   RESET,
   ageStr,
   likesPerHour,
   parseStringArrayColumn,
   wrapText,
 } from "./ansi.ts";
-import { renderBox } from "./box.ts";
+import { renderBox, renderDividedCard } from "./box.ts";
 import type { TweetRow } from "../types.ts";
 import type { TuiHost } from "./types.ts";
 
@@ -21,6 +23,7 @@ export type TweetDetailItem =
   | { kind: "meta"; lines: string[] }
   | { kind: "header"; label: string; color?: string }
   | { kind: "text"; lines: string[]; bordered?: boolean; color?: string }
+  | { kind: "statsCard"; cells: { label: string; value: string }[] }
   | {
       kind: "bullet";
       lines: string[];
@@ -50,18 +53,52 @@ export function getTweetDetailItems(
 ): TweetDetailItem[] {
   const items: TweetDetailItem[] = [];
 
-  const score = r.llm_score == null ? "—" : r.llm_score.toFixed(1);
-  const velocity = likesPerHour(r.likes, r.created_at).toFixed(1);
+  items.push({ kind: "header", label: "post" });
   items.push({
     kind: "meta",
     lines: [
       `${FG_CYAN}@${r.author}${RESET}` +
-        `  ${DIM}${ageStr(r.created_at)} ago${RESET}` +
-        `  ${DIM}score${RESET} ${score}` +
-        `  ${DIM}l/hr${RESET} ${velocity}` +
-        `  ${DIM}likes${RESET} ${r.likes ?? 0}`,
+        `  ${DIM}${ageStr(r.created_at)} ago${RESET}`,
       `${DIM}${formatSource(r.source)}${RESET}`,
       DIM + r.url + RESET,
+    ],
+  });
+  items.push({
+    kind: "text",
+    lines: wrapText(r.text, Math.max(10, width - 4)),
+    bordered: true,
+  });
+
+  // Color-code the stat values with the same rules used by the candidates
+  // list (render-candidates.ts): hot score (>= notify_threshold) goes
+  // yellow+bold, and any cell that fails its gate threshold goes red.
+  const gate = host.cfg.gate;
+  const minLikesPerHour = gate.min_velocity * 60;
+  const score = r.llm_score == null ? "—" : r.llm_score.toFixed(1);
+  const scoreHot =
+    r.llm_score != null && r.llm_score >= host.cfg.judge.notify_threshold;
+  const lphRaw = likesPerHour(r.likes, r.created_at);
+  const velocity = lphRaw.toFixed(1);
+  const likes = r.likes ?? 0;
+  const replies = r.replies ?? 0;
+  const scoreCell = scoreHot ? `${FG_YELLOW}${BOLD}${score}${RESET}` : score;
+  const velCell =
+    lphRaw < minLikesPerHour ? `${FG_RED}${velocity}${RESET}` : velocity;
+  const likesCell =
+    likes < gate.min_likes_absolute
+      ? `${FG_RED}${likes}${RESET}`
+      : String(likes);
+  const repliesCell =
+    replies < gate.min_replies || replies > gate.max_replies
+      ? `${FG_RED}${replies}${RESET}`
+      : String(replies);
+  items.push({
+    kind: "statsCard",
+    cells: [
+      { label: "score", value: scoreCell },
+      { label: "likes", value: likesCell },
+      { label: "replies", value: repliesCell },
+      { label: "l/hr", value: velCell },
     ],
   });
 
@@ -77,13 +114,6 @@ export function getTweetDetailItems(
     label: "judge again",
     hint: `re-run the LLM judge · live log: ${JUDGE_LOG_PATH}`,
     run: (h) => runTestJudge(h, r),
-  });
-
-  items.push({ kind: "header", label: "text" });
-  items.push({
-    kind: "text",
-    lines: wrapText(r.text, Math.max(10, width - 4)),
-    bordered: true,
   });
 
   // Only render the four LLM sections once the tweet has been judged at
@@ -206,7 +236,9 @@ export function renderTweetDetailItem(
 ): string[] {
   const prefix = selected ? `${FG_CYAN}│${RESET} ` : "  ";
 
-  if (it.kind === "meta") return it.lines.map((l) => prefix + l);
+  if (it.kind === "meta") {
+    return renderBox(it.lines, width, DIM).map((l) => prefix + l);
+  }
   if (it.kind === "header") {
     const color = it.color ?? "";
     return [prefix + color + BOLD + it.label + RESET];
@@ -217,6 +249,9 @@ export function renderTweetDetailItem(
     return inner.map((l) =>
       prefix + (color && !it.bordered ? color + l + RESET : l),
     );
+  }
+  if (it.kind === "statsCard") {
+    return renderDividedCard(it.cells, width, DIM).map((l) => prefix + l);
   }
   if (it.kind === "bullet") {
     const color = it.color ?? "";
