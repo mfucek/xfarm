@@ -8,7 +8,7 @@ Edit the USER PROFILE block below to match your situation.
 
 ## USER PROFILE
 
-I'm an engineer at **naumu** — we build collaborative knowledge graphs for AI workflows (structured nodes/edges + semantic search + AI threads grounded in the graph).
+I'm an **AI workspace engineer** — I build and think about the substrate that connects humans, agents, and knowledge inside companies (context routing, agent memory, knowledge graphs, the "post-Notion / post-Slack" workspace).
 My account audience is **AI/ML builders, RAG and agent developers, technical founders, and engineers working on knowledge tooling**.
 I'm trying to grow reach by replying with substantive technical takes early under posts where my POV would land.
 

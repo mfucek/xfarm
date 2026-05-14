@@ -33,3 +33,25 @@ chunking. Common patterns in this codebase:
 A task isn't done while the file is still over threshold. If the refactor
 is genuinely out of scope for the current change, surface that explicitly
 to the user — don't silently leave the warning unaddressed.
+
+## Version bumps: every push bumps `package.json#version`
+
+Every push to `origin` must include a bump of the `version` field in
+`package.json`. The `.githooks/pre-push` hook (wired via
+`core.hooksPath = .githooks`) rejects any push whose local `version`
+matches the remote's — but **don't wait for the hook to catch it**.
+When the user asks to push, bump the version first, include the bump in
+the same commit as the change (or as a separate tip commit), then push.
+
+Pick the bump level by the nature of the change:
+
+- **patch** (e.g. `0.3.0` → `0.3.1`): bug fix, refactor, prompt tweak,
+  copy/UI tweak, internal cleanup.
+- **minor** (e.g. `0.3.1` → `0.4.0`): new user-facing feature, new flag,
+  new behavior, new page/tab.
+- **major** (e.g. `0.3.1` → `1.0.0`): breaking change to config schema,
+  on-disk data layout, CLI surface, or daemon protocol.
+
+If unsure, prefer **patch**. The header renders `v<version>` next to the
+title (see `src/tui/render-header.ts`), so users see the bump on next
+launch.
