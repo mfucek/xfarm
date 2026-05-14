@@ -13,7 +13,8 @@
         { "text": "New About tab with release notes — this thing you're reading right now." },
         { "text": "Config and Debug pages now share one section/group layout so jumping between them feels consistent." },
         { "text": "Fix: deleted keywords no longer reappear after a restart — config.yaml now only seeds the keywords table on first boot." },
-        { "text": "Debug stats now show lifetime ask_naumu and web_search tool invocation counts so you can see how often the agentic loop is calling out." }
+        { "text": "Debug stats now show lifetime ask_naumu and web_search tool invocation counts so you can see how often the agentic loop is calling out." },
+        { "text": "One-line install: `curl -fsSL https://raw.githubusercontent.com/mfucek/xfarm/main/install.sh | bash` clones into ~/.xfarm/app, runs preflight, drops an `xfarm` command on your PATH, and builds the macOS .app. Old .app builder moved to `scripts/install-app.sh`." }
       ]
     },
     {
