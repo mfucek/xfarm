@@ -153,7 +153,7 @@ export function fetchActive(
        WHERE passed_gate_at IS NOT NULL
          AND hidden_at IS NULL
          AND created_at > ?
-       ORDER BY seen_at IS NOT NULL, llm_score IS NULL, llm_score DESC, created_at DESC
+       ORDER BY llm_score IS NULL, llm_score DESC, created_at DESC
        LIMIT ?`,
     )
     .all(cutoff, limit) as TweetRow[];
@@ -172,7 +172,7 @@ export function fetchNonCandidates(
        WHERE passed_gate_at IS NULL
          AND hidden_at IS NULL
          AND created_at > ?
-       ORDER BY seen_at IS NOT NULL, discovered_at DESC
+       ORDER BY discovered_at DESC
        LIMIT ?`,
     )
     .all(cutoff, limit) as TweetRow[];

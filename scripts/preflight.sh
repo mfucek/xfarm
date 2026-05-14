@@ -29,33 +29,53 @@ ask_yes() {
 }
 
 # ---- 1. bun ----
-if ! command -v bun >/dev/null 2>&1; then
+# PATH-only detection misses installs where the current shell hasn't sourced
+# the rc file that adds bun to PATH yet. Probe the common install locations
+# directly before declaring it missing.
+ensure_bun() {
+  command -v bun >/dev/null 2>&1 && return 0
+  for dir in "$HOME/.bun/bin" "/opt/homebrew/bin" "/usr/local/bin"; do
+    if [ -x "$dir/bun" ]; then
+      export PATH="$dir:$PATH"
+      return 0
+    fi
+  done
+  return 1
+}
+
+if ! ensure_bun; then
   warn "bun not found."
   if ask_yes "Install Bun now (curl https://bun.sh/install | bash)?"; then
     curl -fsSL https://bun.sh/install | bash
-    export PATH="$HOME/.bun/bin:$PATH"
   fi
-  if ! command -v bun >/dev/null 2>&1; then
+  if ! ensure_bun; then
     err "bun still missing. Open a new shell or add ~/.bun/bin to PATH."
     exit 1
   fi
 fi
 
-# ---- 2. node_modules ----
-if [ ! -d "$REPO_ROOT/node_modules" ]; then
-  say "Installing JS deps (bun install)..."
-  (cd "$REPO_ROOT" && bun install --silent)
-  (cd "$REPO_ROOT" && bun pm trust @google/genai protobufjs >/dev/null 2>&1 || true)
-fi
+# ---- 2. JS deps ----
+# Run unconditionally — a presence check on node_modules/ misses lockfile
+# bumps where deps changed but the directory already exists. bun install
+# is a near-noop when bun.lock already matches.
+say "Syncing JS deps (bun install)..."
+(cd "$REPO_ROOT" && bun install --silent)
+(cd "$REPO_ROOT" && bun pm trust @google/genai protobufjs >/dev/null 2>&1 || true)
 
 # ---- 3. Playwright Chromium ----
-# Playwright caches Chromium under ~/Library/Caches/ms-playwright on macOS,
-# ~/.cache/ms-playwright on Linux. Either being non-empty is good enough.
-PW_CACHE_MAC="$HOME/Library/Caches/ms-playwright"
-PW_CACHE_LIN="$HOME/.cache/ms-playwright"
-if [ ! -d "$PW_CACHE_MAC" ] && [ ! -d "$PW_CACHE_LIN" ]; then
-  warn "Playwright Chromium not installed."
-  if ask_yes "Install Chromium for Playwright (~100MB, one-time)?"; then
+# Ask Playwright itself what builds it expects, then verify each install
+# location exists. A presence check on ~/Library/Caches/ms-playwright misses
+# version drift — a stale chromium-1217 dir looks "installed" even when the
+# current Playwright wants chromium-1223.
+pw_missing=0
+while IFS= read -r path; do
+  [ -z "$path" ] && continue
+  [ -d "$path" ] || pw_missing=1
+done < <(cd "$REPO_ROOT" && bunx playwright install --dry-run chromium 2>/dev/null | awk '/Install location:/ {print $3}')
+
+if [ "$pw_missing" = "1" ]; then
+  warn "Playwright Chromium missing or stale."
+  if ask_yes "Install Chromium for Playwright (~170MB, one-time per version)?"; then
     (cd "$REPO_ROOT" && bunx playwright install chromium)
   else
     warn "Skipping. The scraper will fail until you run: bunx playwright install chromium"
