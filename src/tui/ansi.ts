@@ -20,7 +20,7 @@ export const FG_CYAN = `${ESC}36m`;
 export const FG_GREEN = `${ESC}32m`;
 export const FG_YELLOW = `${ESC}33m`;
 export const FG_RED = `${ESC}31m`;
-export const FG_BLUE = `${ESC}94m`;
+export const FG_BLUE = `${ESC}38;5;75m`;
 export const FG_GRAY = `${ESC}90m`;
 export const FG_WHITE = `${ESC}97m`;
 
