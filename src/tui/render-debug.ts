@@ -200,6 +200,8 @@ function renderSection(
       lines.push(pair("seen", s.seen));
       lines.push(pair("watchlist", s.watchlist));
       lines.push(pair("keywords", s.keywords));
+      lines.push(pair("ask_naumu", s.ask_naumu_calls));
+      lines.push(pair("web_search", s.web_search_calls));
     } else {
       lines.push(DIM + "  (no stats yet)" + RESET);
     }

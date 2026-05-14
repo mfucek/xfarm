@@ -8,6 +8,8 @@ export type Stats = {
   seen: number;
   watchlist: number;
   keywords: number;
+  ask_naumu_calls: number;
+  web_search_calls: number;
 };
 
 export function stats(db: Database): Stats {
@@ -29,7 +31,23 @@ export function stats(db: Database): Stats {
     ),
     watchlist: one<number>("SELECT COUNT(*) AS n FROM authors"),
     keywords: one<number>("SELECT COUNT(*) AS n FROM keywords"),
+    ask_naumu_calls: getCounter(db, "ask_naumu"),
+    web_search_calls: getCounter(db, "web_search"),
   };
+}
+
+export function bumpCounter(db: Database, name: string): void {
+  db.prepare(
+    `INSERT INTO counters(name, value) VALUES (?, 1)
+     ON CONFLICT(name) DO UPDATE SET value = value + 1`,
+  ).run(name);
+}
+
+export function getCounter(db: Database, name: string): number {
+  const row = db
+    .prepare("SELECT value FROM counters WHERE name = ?")
+    .get(name) as { value: number } | undefined;
+  return row?.value ?? 0;
 }
 
 export type Activity = {

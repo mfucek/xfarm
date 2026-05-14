@@ -72,6 +72,7 @@ export class Judge {
   constructor(
     private cfg: Config,
     private naumu: NaumuMcpClient | null = null,
+    private db: DB | null = null,
   ) {
     this.llm = makeLlmClient(cfg);
     this.webSearch = new WebSearchClient();
@@ -124,7 +125,10 @@ export class Judge {
         required: ["question"],
         properties: { question: { type: "string" } },
       },
-      handler: async (args) => naumu.ask(String(args.question ?? "")),
+      handler: async (args) => {
+        this.db?.bumpCounter("ask_naumu");
+        return naumu.ask(String(args.question ?? ""));
+      },
       progressLabel: "Asking Naumu…",
     };
   }
@@ -142,10 +146,12 @@ export class Judge {
           fetch_pages: { type: "boolean" },
         },
       },
-      handler: async (args) =>
-        this.webSearch.search(String(args.query ?? ""), {
+      handler: async (args) => {
+        this.db?.bumpCounter("web_search");
+        return this.webSearch.search(String(args.query ?? ""), {
           fetchPages: Boolean(args.fetch_pages),
-        }),
+        });
+      },
       progressLabel: "Browsing the web…",
     };
   }

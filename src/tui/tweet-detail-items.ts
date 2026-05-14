@@ -345,7 +345,7 @@ async function runTestJudge(host: TuiHost, r: TweetRow): Promise<void> {
   }
 
   try {
-    const judge = new Judge(host.cfg, naumu);
+    const judge = new Judge(host.cfg, naumu, host.db);
     const result = await judge.judgeOne(r, {
       onStatus: (s) => {
         host.tweetDetailJudgeStatus = s;

@@ -38,7 +38,7 @@ export async function runDaemon(): Promise<void> {
   const bucket = new TokenBucket(cfg.scraper.max_requests_per_minute);
   const naumu = isNaumuEnabled(cfg) ? new NaumuMcpClient(cfg) : null;
   if (naumu) void naumu.connect();
-  const judge = new Judge(cfg, naumu);
+  const judge = new Judge(cfg, naumu, db);
   const suggester = cfg.suggester.enabled ? new Suggester(cfg) : null;
   const ac = new AbortController();
   const { signal } = ac;

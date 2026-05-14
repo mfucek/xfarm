@@ -212,6 +212,9 @@ export class DB {
   recentActivity(windowSec: number, buckets: number): analytics.Activity {
     return analytics.recentActivity(this.db, windowSec, buckets);
   }
+  bumpCounter(name: string): void {
+    analytics.bumpCounter(this.db, name);
+  }
 
   // ---------- maintenance ----------
   clearScanCooldowns(): number {

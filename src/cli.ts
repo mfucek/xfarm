@@ -228,7 +228,7 @@ judge
     const { Judge } = await import("./judge.ts");
     const cfg = loadConfig();
     const db = new DB(cfg.storage.db_path);
-    const j = new Judge(cfg);
+    const j = new Judge(cfg, null, db);
     const pending = db.fetchDueForJudge();
     console.log(`Pending: ${pending.length}`);
     for (const t of pending) {

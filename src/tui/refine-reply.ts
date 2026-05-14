@@ -33,7 +33,7 @@ export async function runRefineReplyIdea(
   }
 
   try {
-    const judge = new Judge(host.cfg, naumu);
+    const judge = new Judge(host.cfg, naumu, host.db);
     const currentBullets = parseStringArrayColumn(r.llm_pitch);
     const bullet = await judge.refineReplyIdea(r, {
       userPrompt,

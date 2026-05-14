@@ -71,6 +71,11 @@ CREATE TABLE IF NOT EXISTS suggestions (
 );
 CREATE INDEX IF NOT EXISTS idx_suggestions_pending
     ON suggestions(state, created_at DESC) WHERE state = 'pending';
+
+CREATE TABLE IF NOT EXISTS counters (
+    name            TEXT PRIMARY KEY,
+    value           INTEGER NOT NULL DEFAULT 0
+);
 `;
 
 // ALTER TABLE … ADD COLUMN is idempotent in spirit but errors when the column
