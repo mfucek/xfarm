@@ -129,6 +129,18 @@
         { "text": "Fixed space key being dropped while typing in the keyword prompt." },
         { "text": "After `git pull`, xfarm auto-relaunches in the same terminal." }
       ]
+    },
+    {
+      "version": "0.2.0",
+      "date": "2026-05-13",
+      "title": "Pre-release",
+      "description": "Foundations xfarm was built on before v0.3.0 turned it into a proper release.",
+      "changes": [
+        { "text": "Initial scaffold: scraping daemon, SQLite store, watchlist + per-keyword scanners." },
+        { "text": "Unified scheduler with quiet hours and home-feed visits." },
+        { "text": "Modular TUI with shared box/scroll/cursor utilities across Candidates, Keywords, Config, and Debug." },
+        { "text": "LLM provider abstraction (Vertex / Codex), pitch bullets and gate-at-discovery in the judge, chunked keyword-suggester merged into the keywords page." }
+      ]
     }
   ]
 }
