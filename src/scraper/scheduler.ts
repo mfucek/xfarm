@@ -144,10 +144,14 @@ export async function runScheduler(
       cfg.schedule.long_break_after > 0 &&
       counter % cfg.schedule.long_break_after === 0
     ) {
+      const baseMs = cfg.schedule.long_break_sec * 1000;
+      const jitterMs = cfg.schedule.long_break_jitter_sec * 1000;
+      const offsetMs = (Math.random() * 2 - 1) * jitterMs;
+      const breakMs = Math.max(0, baseMs + offsetMs);
       console.log(
-        `[scheduler] long break: ${cfg.schedule.long_break_sec}s after ${counter} scrapes`,
+        `[scheduler] long break: ${(breakMs / 1000).toFixed(0)}s after ${counter} scrapes`,
       );
-      await sleep(cfg.schedule.long_break_sec * 1000);
+      await sleep(breakMs);
       continue;
     }
 

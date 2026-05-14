@@ -136,7 +136,7 @@ function renderSection(
       lines.push(
         labeled(
           "long break",
-          `${ctx.cfg.schedule.long_break_sec}s every ${ctx.cfg.schedule.long_break_after} scrapes ` +
+          `${ctx.cfg.schedule.long_break_sec}s ± ${ctx.cfg.schedule.long_break_jitter_sec}s every ${ctx.cfg.schedule.long_break_after} scrapes ` +
             `${DIM}(≈ every ${sum.longBreakEveryMin.toFixed(0)} min wall-clock)${RESET}`,
         ),
       );

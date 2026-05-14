@@ -75,9 +75,11 @@ const ScheduleSchema = z.object({
   // Default = 30 ± 30s -> 0..60s between scrapes (~2/min mean).
   base_interval_sec: z.number().int().positive().default(30),
   jitter_sec: z.number().int().nonnegative().default(30),
-  // Every long_break_after scrapes, take a long_break_sec pause. Set after=0 to disable.
+  // Every long_break_after scrapes, take a long_break_sec ± long_break_jitter_sec
+  // pause (uniform random). Set after=0 to disable.
   long_break_after: z.number().int().nonnegative().default(30),
   long_break_sec: z.number().int().nonnegative().default(600),
+  long_break_jitter_sec: z.number().int().nonnegative().default(300),
   // Home timeline: visit roughly this often (seconds between visits).
   home_interval_sec: z.number().int().positive().default(900),
 });
@@ -184,6 +186,7 @@ const ConfigSchema = z.object({
     jitter_sec: 30,
     long_break_after: 30,
     long_break_sec: 600,
+    long_break_jitter_sec: 300,
     home_interval_sec: 900,
   }),
   judge: JudgeSchema,
