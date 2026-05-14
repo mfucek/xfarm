@@ -170,7 +170,6 @@ function renderSection(
       lines.push(pair("pending judge", s.pending_judge));
       lines.push(pair("notified", s.notified));
       lines.push(pair("seen", s.seen));
-      lines.push(pair("replied", s.replied));
       lines.push(pair("watchlist", s.watchlist));
       lines.push(pair("keywords", s.keywords));
     } else {
@@ -200,12 +199,13 @@ export function renderDebug(
 ): string {
   const cur = Math.max(0, Math.min(ctx.debugCursor, items.length - 1));
 
-  // Pre-compute action label width so the menu lines up.
+  // Pre-compute action label width so the menu lines up. Labels render
+  // wrapped in `[ ... ]` brackets, so account for the 4 extra chars here.
   const actionItems = items.filter(
     (it): it is DebugAction => it.kind === "action",
   );
   const labelW = actionItems.length
-    ? Math.max(...actionItems.map((a) => stripAnsi(a.label).length))
+    ? Math.max(...actionItems.map((a) => stripAnsi(a.label).length + 4))
     : 0;
 
   const out: string[] = [];
@@ -242,9 +242,10 @@ export function renderDebug(
       const isSel = k === cur;
       if (isSel) curStart = out.length;
       const marker = isSel ? `${FG_CYAN}›${RESET}` : " ";
+      const bracketed = `[ ${a.label} ]`;
       const label = isSel
-        ? `${BOLD}${padRight(a.label, labelW)}${RESET}`
-        : padRight(a.label, labelW);
+        ? `${BOLD}${padRight(bracketed, labelW)}${RESET}`
+        : padRight(bracketed, labelW);
       const hint = a.hint ? `   ${DIM}${a.hint}${RESET}` : "";
       out.push(groupPrefix + `  ${marker} ${label}${hint}`);
       if (isSel) curEnd = out.length - 1;

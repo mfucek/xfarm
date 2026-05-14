@@ -1,11 +1,4 @@
-import { spawn } from "node:child_process";
-import {
-  isActivate,
-  isChar,
-  isDown,
-  isUp,
-  type ParsedKey,
-} from "./keys.ts";
+import { isActivate, isChar, isDown, isUp, type ParsedKey } from "./keys.ts";
 import type { TuiHost } from "./types.ts";
 
 export function handleCandidatesKey(host: TuiHost, key: ParsedKey): void {
@@ -16,12 +9,6 @@ export function handleCandidatesKey(host: TuiHost, key: ParsedKey): void {
     host.selected = Math.min(host.selected + 1, combined.length - 1);
   } else if (isUp(key)) {
     host.selected = Math.max(host.selected - 1, 0);
-  } else if (isChar("o")(key)) {
-    const r = combined[host.selected];
-    if (r) {
-      spawn("open", [r.url], { stdio: "ignore", detached: true }).unref();
-      host.flash(`opened ${r.url}`);
-    }
   } else if (isActivate(key)) {
     const r = combined[host.selected];
     if (r) {
@@ -30,19 +17,14 @@ export function handleCandidatesKey(host: TuiHost, key: ParsedKey): void {
       host.draw();
       return;
     }
-  } else if (isChar("s")(key)) {
+  } else if (isChar("x")(key)) {
     const r = combined[host.selected];
     if (r) {
-      host.db.markSeen(r.id);
+      host.db.markHidden(r.id);
       host.refresh();
-      host.flash(`marked seen: @${r.author}`);
-    }
-  } else if (isChar("r")(key)) {
-    const r = combined[host.selected];
-    if (r) {
-      host.db.markReplied(r.id);
-      host.refresh();
-      host.flash(`marked replied: @${r.author}`);
+      const total = host.candidates.length + host.nonCandidates.length;
+      host.selected = Math.min(host.selected, Math.max(0, total - 1));
+      host.flash(`hid @${r.author}`);
     }
   } else if (isChar("C")(key)) {
     const n = host.db.clearLowEngagementOldTweets(3600);

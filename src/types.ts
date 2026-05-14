@@ -32,6 +32,7 @@ export type TweetRow = {
   notified_at: string | null;
   seen_at: string | null;
   replied_at: string | null;
+  hidden_at: string | null;
 };
 
 export type JudgeResult = {

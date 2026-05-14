@@ -253,14 +253,21 @@ export function getConfigItems(host: TuiHost): ConfigItem[] {
   });
   items.push({
     kind: "field",
-    id: "naumu_server_url",
-    label: "server url",
-    value: cfg.judge.naumu.server_url || "(unset)",
-    hint: "Streamable HTTP endpoint of the naumu MCP server.",
-    edit: (h) =>
-      editConfigField(h, "Naumu MCP server URL: ", (v) => ({
-        judge: { naumu: { server_url: v } },
-      })),
+    id: "naumu_command",
+    label: "command",
+    value: `${cfg.judge.naumu.command} ${cfg.judge.naumu.args.join(" ")}`,
+    hint:
+      "Subprocess that runs the naumu MCP server (stdio). Default: `npx -y @naumu/mcp`. Edit the full command line; first token = bin, rest = args.",
+    edit: async (h) => {
+      const v = await h.promptInput("Naumu MCP command (e.g. `npx -y @naumu/mcp`): ");
+      if (v == null) return null;
+      const parts = v.trim().split(/\s+/);
+      const command = parts[0] || "npx";
+      const args = parts.slice(1);
+      patchConfigFile({ judge: { naumu: { command, args } } });
+      h.reloadConfig();
+      return "saved · restart daemon to apply";
+    },
   });
   items.push({
     kind: "field",
@@ -278,10 +285,35 @@ export function getConfigItems(host: TuiHost): ConfigItem[] {
     id: "naumu_api_key",
     label: "api key",
     value: mask(cfg.judge.naumu.api_key),
-    hint: "Bearer token for the MCP endpoint. NAUMU_API_KEY env var overrides this.",
+    hint:
+      "NAUMU_API_KEY (bot or user key). Passed to the subprocess via env. NAUMU_API_KEY env var overrides this.",
     edit: (h) =>
       editConfigField(h, "Naumu API key: ", (v) => ({
         judge: { naumu: { api_key: v } },
+      })),
+  });
+  items.push({
+    kind: "field",
+    id: "naumu_identity_id",
+    label: "identity id",
+    value: cfg.judge.naumu.identity_id || "(unset, not required)",
+    hint:
+      "Optional. Only needed for bot-key flows; the user-key ask_naumu path doesn't use this. NAUMU_IDENTITY_ID env var overrides.",
+    edit: (h) =>
+      editConfigField(h, "Naumu identity ID (optional): ", (v) => ({
+        judge: { naumu: { identity_id: v } },
+      })),
+  });
+  items.push({
+    kind: "field",
+    id: "naumu_api_url",
+    label: "api url",
+    value: cfg.judge.naumu.api_url || "(default: https://naumu.ai)",
+    hint:
+      "Override the naumu backend URL the subprocess hits. Blank = naumu.ai. NAUMU_API_URL env var overrides this.",
+    edit: (h) =>
+      editConfigField(h, "Naumu API URL (blank = naumu.ai): ", (v) => ({
+        judge: { naumu: { api_url: v } },
       })),
   });
   items.push({

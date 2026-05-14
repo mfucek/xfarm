@@ -55,7 +55,7 @@ export async function scanAuthor(
           } else {
             const ageMin =
               (Date.now() - new Date(t.createdAt).getTime()) / 60000;
-            if (passesGate(cfg, ageMin, null, t.likes)) {
+            if (passesGate(cfg, ageMin, null, t.likes, t.replies)) {
               db.markGatePassed(t.id);
             }
           }

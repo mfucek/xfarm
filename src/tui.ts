@@ -55,6 +55,7 @@ import { handleConfigKey } from "./tui/keys-config.ts";
 import { renderConfig } from "./tui/render-config.ts";
 import { handleTweetDetailKey } from "./tui/keys-tweet-detail.ts";
 import { isChar, parseKey, type ParsedKey } from "./tui/keys.ts";
+import { handleBannerKey, renderBanner } from "./tui/banner.ts";
 
 const ACTIVITY_WINDOW_SEC = 3600;
 const ACTIVITY_BUCKETS = 60;
@@ -91,12 +92,19 @@ class TUI implements TuiHost {
   configCursor = 1; // start past the first header so j/k feels right
   tweetDetailCursor = 0;
   tweetDetailCopiedAt: number | null = null;
+  tweetDetailBusyAction: string | null = null;
   setupStatus: SetupStatus | null = null;
+  updateAvailable: { behind: number } | null = null;
+  bannerSelected = false;
 
   private inputResolver: ((value: string | null) => void) | null = null;
   private stopFlag = false;
+  private stopResolver: (() => void) | null = null;
   private intervalId: ReturnType<typeof setInterval> | null = null;
+  private bannerAnimId: ReturnType<typeof setInterval> | null = null;
   private lastFlash: { msg: string; until: number } | null = null;
+  private onData: ((key: string) => void) | null = null;
+  private torndown = false;
 
   constructor(
     public readonly db: DB,
@@ -113,15 +121,17 @@ class TUI implements TuiHost {
         this.draw();
       }
     }, 1000);
+    // Banner gradient animation. Only draws when the banner is visible, so
+    // the 10fps cadence costs nothing while no update is available.
+    this.bannerAnimId = setInterval(() => {
+      if (!this.stopFlag && this.updateAvailable) this.draw();
+    }, 100);
 
     stdout.on("resize", () => this.draw());
 
     await new Promise<void>((resolve) => {
-      const check = () => {
-        if (this.stopFlag) return resolve();
-        setTimeout(check, 100);
-      };
-      check();
+      if (this.stopFlag) return resolve();
+      this.stopResolver = resolve;
     });
     this.teardownTerminal();
   }
@@ -131,7 +141,8 @@ class TUI implements TuiHost {
     if (stdin.isTTY) stdin.setRawMode(true);
     stdin.resume();
     stdin.setEncoding("utf8");
-    stdin.on("data", (key: string) => this.onKey(key));
+    this.onData = (key: string) => this.onKey(key);
+    stdin.on("data", this.onData);
     process.on("exit", () => this.teardownTerminal());
     // bun --watch sends SIGTERM on file change; make sure we restore the
     // terminal before dying instead of leaving the user in alt-screen.
@@ -144,11 +155,32 @@ class TUI implements TuiHost {
   }
 
   private teardownTerminal(): void {
-    if (this.intervalId) clearInterval(this.intervalId);
+    if (this.torndown) return;
+    this.torndown = true;
+    if (this.intervalId) {
+      clearInterval(this.intervalId);
+      this.intervalId = null;
+    }
+    if (this.bannerAnimId) {
+      clearInterval(this.bannerAnimId);
+      this.bannerAnimId = null;
+    }
+    if (this.onData) {
+      stdin.off("data", this.onData);
+      this.onData = null;
+    }
     try {
       if (stdin.isTTY) stdin.setRawMode(false);
     } catch {
       /* may already be reset */
+    }
+    // Release stdin so the event loop can exit. Without this the listener is
+    // gone but the flowing-mode resume() keeps a handle open and the process
+    // hangs after the user quits.
+    try {
+      stdin.pause();
+    } catch {
+      /* ignore */
     }
     stdout.write(BRACKETED_PASTE_OFF + SHOW_CURSOR + ALT_OFF);
   }
@@ -159,6 +191,11 @@ class TUI implements TuiHost {
 
   requestStop(): void {
     this.stopFlag = true;
+    if (this.stopResolver) {
+      const r = this.stopResolver;
+      this.stopResolver = null;
+      r();
+    }
   }
 
   /** Re-read config.yaml + setup status. Called after the Config tab writes. */
@@ -186,8 +223,9 @@ class TUI implements TuiHost {
     }
 
     if (this.page === "candidates") {
-      this.candidates = this.db.fetchActive(50);
-      this.nonCandidates = this.db.fetchNonCandidates(50);
+      const maxAge = this.cfg.candidates.max_age_hours;
+      this.candidates = this.db.fetchActive(maxAge, 50);
+      this.nonCandidates = this.db.fetchNonCandidates(maxAge, 50);
       const total = this.candidates.length + this.nonCandidates.length;
       this.selected = Math.min(this.selected, Math.max(0, total - 1));
     } else if (this.page === "keywords") {
@@ -277,7 +315,7 @@ class TUI implements TuiHost {
     }
 
     if (key.kind === "ctrl-c" || isChar("q")(key)) {
-      this.stopFlag = true;
+      this.requestStop();
       return;
     }
     if (key.kind === "tab" || key.kind === "right") {
@@ -303,11 +341,14 @@ class TUI implements TuiHost {
       if (target) {
         this.page = target;
         this.selected = 0;
+        this.bannerSelected = false;
         this.refresh();
         this.draw();
       }
       return;
     }
+
+    if (handleBannerKey(this, key)) return;
 
     if (this.page === "candidates") handleCandidatesKey(this, key);
     else if (this.page === "keywords") handleKeywordsKey(this, key);
@@ -356,6 +397,8 @@ class TUI implements TuiHost {
   draw(): void {
     const cols = stdout.columns || 100;
     const out: string[] = [HOME, `${ESC}J`];
+    const banner = renderBanner(this, cols);
+    if (banner) out.push(banner.join("\n") + "\n\n");
     out.push(renderHeader(cols, this));
     out.push("\n\n");
     if (this.detailRow) {
@@ -418,6 +461,40 @@ export async function runTui(): Promise<void> {
     const missing = status.checks.filter((c) => !c.ok).map((c) => c.id).join(", ");
     tui.flash(`setup incomplete (${missing}) — finish here to start scraping`, 8000);
   }
-  await tui.run();
-  db.close();
+  // TEMP: flip to true to preview the banner without a real upstream
+  // behind-state. While true, the periodic check is skipped so the stubbed
+  // value isn't immediately overwritten. Remove before commit.
+  const TEST_BANNER = false;
+
+  let versionCheckId: ReturnType<typeof setInterval> | null = null;
+  if (TEST_BANNER) {
+    tui.updateAvailable = { behind: 3 };
+  } else {
+    // Upstream check — runs once at startup and then every minute. Silent on
+    // every failure mode (no git, no network, no upstream), so the banner
+    // only appears when there really is something to pull. If a check comes
+    // back null after we had previously shown the banner, the user pulled
+    // out-of-band and we clear it.
+    const { checkForUpdate } = await import("./version-check.ts");
+    const pollUpdate = async (): Promise<void> => {
+      const info = await checkForUpdate();
+      const had = tui.updateAvailable;
+      if (info) {
+        tui.updateAvailable = info;
+        tui.draw();
+      } else if (had) {
+        tui.updateAvailable = null;
+        tui.bannerSelected = false;
+        tui.draw();
+      }
+    };
+    void pollUpdate();
+    versionCheckId = setInterval(() => void pollUpdate(), 60_000);
+  }
+  try {
+    await tui.run();
+  } finally {
+    if (versionCheckId) clearInterval(versionCheckId);
+    db.close();
+  }
 }

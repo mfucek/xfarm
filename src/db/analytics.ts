@@ -6,7 +6,6 @@ export type Stats = {
   pending_judge: number;
   notified: number;
   seen: number;
-  replied: number;
   watchlist: number;
   keywords: number;
 };
@@ -27,9 +26,6 @@ export function stats(db: Database): Stats {
     ),
     seen: one<number>(
       "SELECT COUNT(*) AS n FROM tweets WHERE seen_at IS NOT NULL",
-    ),
-    replied: one<number>(
-      "SELECT COUNT(*) AS n FROM tweets WHERE replied_at IS NOT NULL",
     ),
     watchlist: one<number>("SELECT COUNT(*) AS n FROM authors"),
     keywords: one<number>("SELECT COUNT(*) AS n FROM keywords"),

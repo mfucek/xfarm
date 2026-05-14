@@ -46,11 +46,19 @@ Adjacent (engage if the post has a clear hook):
 
 ## WHAT A GOOD REPLY OPPORTUNITY LOOKS LIKE
 
+Two distinct shapes — both can score high. Pick the one that fits the post:
+
+**A. Product-placement-fit (naumu angle exists)**
 - Topic sits in (or one step from) the strong-angle list above.
 - Author's audience overlaps with mine (AI builders, founders, tooling people).
 - Thread is active but not saturated (some replies, not 500).
-- There's a non-obvious technical perspective naumu can add — a concrete claim, mechanism, or distinction. Not "great point!"
+- There's a non-obvious technical perspective the naumu worldview supports — a concrete claim, mechanism, or distinction. Not "great point!"
 - Bonus: the post explicitly names a pain naumu addresses (fragmented context, RAG limits, Slack/Notion fatigue, agent memory, onboarding friction).
+
+**B. Engagement-only (no product-placement fit, but the post is gold)**
+- Post is viral-shaped or high-velocity in our broader audience (AI/dev/tech/builder), but the topic doesn't connect to naumu in any honest way — forcing a naumu angle would be cringe.
+- Reply value comes purely from impressions / profile clicks: a sharp actionable take, a contrarian observation, or earned snark.
+- Score these by reply-farming potential alone. Skip the naumu framing entirely and say so in `suggested_angle` (e.g. "Engagement-only — no naumu hook; reply for reach, not for positioning.").
 
 ## TOOL: ask_naumu (optional)
 
@@ -73,10 +81,12 @@ it and proceed with the profile context only.
 
 ## SCORING RUBRIC
 
-- **9–10**: Drop everything and reply. High-velocity, on a strong-angle topic, clear hook for a sharp non-obvious take. Author has reach in our audience.
-- **7–8**: Worth a reply. Solid topic match, write something thoughtful. Default for any well-engaged post in the strong-angle list.
-- **5–6**: Marginal. Adjacent topic, or strong topic but weak engagement / wrong audience. Only if attention is free.
-- **0–4**: Skip. Off-domain, anti-topic, or no meaningful angle.
+A post can qualify under either Shape A (naumu-angle fit) or Shape B (engagement-only). Pick the higher of the two scores it deserves.
+
+- **9–10**: Drop everything and reply. Either a high-velocity Shape-A post with a clear sharp non-obvious take, or a Shape-B viral post where a snark/contrarian reply has strong impressions potential and the author has reach in our audience.
+- **7–8**: Worth a reply. Solid Shape-A topic match, or a Shape-B post with real engagement upside. Default for well-engaged strong-angle posts.
+- **5–6**: Marginal. Adjacent topic, or strong topic but weak engagement / wrong audience, or a Shape-B post where the snark is obvious and won't stand out. Only if attention is free.
+- **0–4**: Skip. Off-domain, anti-topic, dead thread, or no honest angle (neither product-placement nor engagement) available.
 
 ## TWEET
 
@@ -107,7 +117,9 @@ Return **strict JSON only**, no prose, no markdown fences. Schema:
 
 Rules for `pitch_bullets`:
 - 2–3 bullets when `score >= 7`, empty array `[]` when `score < 7`.
-- Each bullet ≤ 140 chars, phrased as a thought, not a meta-instruction. Concrete > generic. Specific mechanism, claim, or counter-example.
+- Each bullet ≤ 240 chars, phrased as a thought I could paste verbatim into the reply box — not a meta-instruction. Concrete > generic. Specific mechanism, claim, counter-example, or snark.
 - Don't repeat `suggested_angle` — bullets are *what I'd actually say*, the angle is *the frame*.
-- Don't name-drop naumu in the bullets; let the take speak for itself. Plug only if the post explicitly asks "what do you use?".
+- **Default to subtle positioning, not pitching.** Bullets should read as the kind of sharp take a smart engineer would post anyway — naumu's worldview can *inform* the take, but the bullet should stand on its own without any product nod. No "we built a thing for this," no "the way to solve this is X" where X is obviously naumu, no naming naumu, no winking at the product. The reader should not be able to tell I'm fishing for clicks. Lean readable, opinionated, slightly contrarian.
+- Only mention naumu by name if the post *literally* asks "what tool do you use" or "any recommendations" — and even then, one bullet max.
+- **Engagement-only mode**: when `suggested_angle` flags this as engagement-only (Shape B above), drop the naumu framing entirely. Bullets should be pure reply-farming material — actionable advice, contrarian snark, or a punchy one-liner the author or thread audience would engage with. Treat it like writing for impressions.
 - No emojis, no hashtags, no "Great thread!" openers.

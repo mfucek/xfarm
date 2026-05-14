@@ -24,11 +24,12 @@ export function renderConfig(cols: number, host: TuiHost): string {
   const cur = Math.max(0, Math.min(host.configCursor, items.length - 1));
 
   // Pre-compute label width across all field/toggle items so values align.
+  // Labels render wrapped in `[ ... ]` brackets, so add 4 extra chars.
   const labelW = Math.max(
     8,
     ...items
       .filter((it) => it.kind === "field" || it.kind === "toggle")
-      .map((it) => stripAnsi((it as { label: string }).label).length),
+      .map((it) => stripAnsi((it as { label: string }).label).length + 4),
   );
 
   // Each header starts a group that owns every following non-header item up
@@ -63,9 +64,10 @@ export function renderConfig(cols: number, host: TuiHost): string {
       for (const line of renderCodexUsage(cols, host)) out.push(prefix + line);
     } else {
       const marker = isSel ? `${FG_CYAN}›${RESET}` : " ";
+      const bracketed = `[ ${it.label} ]`;
       const label = isSel
-        ? `${BOLD}${padRight(it.label, labelW)}${RESET}`
-        : padRight(it.label, labelW);
+        ? `${BOLD}${padRight(bracketed, labelW)}${RESET}`
+        : padRight(bracketed, labelW);
       const valueColor =
         it.kind === "toggle" ? FG_GREEN : valueColorFor(it.value);
       const valW = Math.max(10, Math.floor((cols - 8 - labelW) * 0.45));

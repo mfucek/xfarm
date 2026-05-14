@@ -99,6 +99,10 @@ export function markReplied(db: Database, id: string): void {
   ).run(now, now, id);
 }
 
+export function markHidden(db: Database, id: string): void {
+  db.prepare("UPDATE tweets SET hidden_at=? WHERE id=?").run(nowIso(), id);
+}
+
 export function fetchTrackingSet(db: Database, maxAgeHours: number): string[] {
   const cutoff = new Date(Date.now() - maxAgeHours * 3600 * 1000).toISOString();
   const rows = db
@@ -137,27 +141,41 @@ export function fetchDueForNotify(
     .all(threshold, limit) as TweetRow[];
 }
 
-export function fetchActive(db: Database, limit = 50): TweetRow[] {
+export function fetchActive(
+  db: Database,
+  maxAgeHours: number,
+  limit = 50,
+): TweetRow[] {
+  const cutoff = new Date(Date.now() - maxAgeHours * 3600 * 1000).toISOString();
   return db
     .prepare(
       `SELECT * FROM tweets
-       WHERE seen_at IS NULL AND passed_gate_at IS NOT NULL
-       ORDER BY llm_score IS NULL, llm_score DESC, created_at DESC
+       WHERE passed_gate_at IS NOT NULL
+         AND hidden_at IS NULL
+         AND created_at > ?
+       ORDER BY seen_at IS NOT NULL, llm_score IS NULL, llm_score DESC, created_at DESC
        LIMIT ?`,
     )
-    .all(limit) as TweetRow[];
+    .all(cutoff, limit) as TweetRow[];
 }
 
 /** Scraped but unsurfaced tweets — the inverse of fetchActive. */
-export function fetchNonCandidates(db: Database, limit = 50): TweetRow[] {
+export function fetchNonCandidates(
+  db: Database,
+  maxAgeHours: number,
+  limit = 50,
+): TweetRow[] {
+  const cutoff = new Date(Date.now() - maxAgeHours * 3600 * 1000).toISOString();
   return db
     .prepare(
       `SELECT * FROM tweets
-       WHERE seen_at IS NULL AND passed_gate_at IS NULL
-       ORDER BY discovered_at DESC
+       WHERE passed_gate_at IS NULL
+         AND hidden_at IS NULL
+         AND created_at > ?
+       ORDER BY seen_at IS NOT NULL, discovered_at DESC
        LIMIT ?`,
     )
-    .all(limit) as TweetRow[];
+    .all(cutoff, limit) as TweetRow[];
 }
 
 /** Tracked tweet (fresh + unseen) overdue for velocity re-poll. */

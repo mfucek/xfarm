@@ -2,6 +2,7 @@ import { spawn } from "node:child_process";
 import { stdout } from "node:process";
 import {
   isActivate,
+  isChar,
   isClose,
   isDown,
   isLeft,
@@ -12,6 +13,7 @@ import {
 import { stepSelectable } from "./items.ts";
 import {
   getTweetDetailItems,
+  hideAndAdvance,
   isSelectable,
   type TweetDetailItem,
 } from "./tweet-detail-items.ts";
@@ -38,6 +40,14 @@ export function handleTweetDetailKey(host: TuiHost, key: ParsedKey): void {
   }
   if (isRight(key)) {
     navigateRow(host, 1);
+    return;
+  }
+
+  // x — hide the current row from the list (sets hidden_at, does not delete)
+  // and jump to the next candidate. Always available, regardless of where the
+  // inner cursor is.
+  if (isChar("x")(key)) {
+    hideAndAdvance(host, r);
     return;
   }
 
@@ -72,8 +82,8 @@ export function handleTweetDetailKey(host: TuiHost, key: ParsedKey): void {
     if (!item) return;
     if (item.kind === "action") {
       void runDetailAction(host, item);
-    } else if (item.kind === "bullets") {
-      copyToClipboard(host, item.raw.join("\n"));
+    } else if (item.kind === "bullet") {
+      copyToClipboard(host, item.raw);
     }
     return;
   }

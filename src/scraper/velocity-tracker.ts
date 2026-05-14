@@ -16,7 +16,14 @@ export function passesGate(
   ageMin: number,
   velocity: number | null,
   likes: number,
+  replies: number,
 ): boolean {
+  // Reply count is a hard AND requirement: a dead thread (too few replies) or
+  // a saturated one (too many) is not worth a reply regardless of velocity or
+  // likes.
+  if (replies < cfg.gate.min_replies || replies > cfg.gate.max_replies) {
+    return false;
+  }
   if (
     velocity != null &&
     ageMin <= cfg.gate.velocity_window_min &&
@@ -61,7 +68,7 @@ export async function repollOne(
         velocity,
       );
       const ageMin = (Date.now() - new Date(focal.createdAt).getTime()) / 60000;
-      if (passesGate(cfg, ageMin, velocity, focal.likes)) {
+      if (passesGate(cfg, ageMin, velocity, focal.likes, focal.replies)) {
         db.markGatePassed(id);
         console.log(
           `[tracker] gate passed @${focal.author} id=${id} v=${velocity.toFixed(

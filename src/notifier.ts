@@ -1,4 +1,5 @@
 import { spawn } from "node:child_process";
+import { resolve as resolvePath } from "node:path";
 import type { Config } from "./config.ts";
 import type { DB } from "./db.ts";
 import { sleep } from "./scraper/rate-limit.ts";
@@ -14,11 +15,15 @@ async function which(cmd: string): Promise<string | null> {
   });
 }
 
+// Single-quote a string for /bin/sh: wrap in '…', and turn embedded ' into '\''.
+const shQuote = (s: string) => `'${s.replace(/'/g, "'\\''")}'`;
+
 export async function notify(
   title: string,
   message: string,
   url: string,
   sound: string,
+  tweetId?: string,
 ): Promise<void> {
   const tn = await which("terminal-notifier");
   if (tn) {
@@ -33,7 +38,16 @@ export async function notify(
         "-sender",
         "com.apple.Terminal",
       ];
-      if (url) args.push("-open", url);
+      if (url && tweetId) {
+        // Clicking the notification must (1) mark the tweet seen and (2) open
+        // the URL. terminal-notifier's -open and -execute are mutually
+        // exclusive click actions, so do both in a single subcommand.
+        const cliPath = resolvePath(import.meta.dir, "cli.ts");
+        const cmd = `${shQuote(process.execPath)} run ${shQuote(cliPath)} notify-click ${shQuote(tweetId)} ${shQuote(url)}`;
+        args.push("-execute", cmd);
+      } else if (url) {
+        args.push("-open", url);
+      }
       const p = spawn(tn, args);
       p.on("close", () => resolve());
     });
@@ -67,7 +81,7 @@ export async function notifyLoop(
       const title = `xfarm: @${t.author} (${(t.llm_score ?? 0).toFixed(1)})`;
       const message = (t.llm_reason ?? "").slice(0, 200);
       try {
-        await notify(title, message, t.url, cfg.notifier.sound);
+        await notify(title, message, t.url, cfg.notifier.sound, t.id);
         db.markNotified(t.id);
         console.log(
           `[notifier] @${t.author} id=${t.id.slice(0, 12)} score=${(

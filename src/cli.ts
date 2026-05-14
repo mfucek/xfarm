@@ -59,6 +59,31 @@ program
   });
 
 program
+  .command("notify-click <id> <url>")
+  .description(
+    "Internal: invoked when a macOS alert is clicked — marks the tweet seen and opens the URL",
+  )
+  .action(async (id: string, url: string) => {
+    try {
+      const cfg = loadConfig();
+      const db = new DB(cfg.storage.db_path);
+      try {
+        db.markSeen(id);
+      } finally {
+        db.close();
+      }
+    } catch (e) {
+      console.error("notify-click: mark-seen failed:", e);
+    }
+    const { spawn } = await import("node:child_process");
+    await new Promise<void>((resolve) => {
+      const p = spawn("open", [url], { stdio: "ignore" });
+      p.on("close", () => resolve());
+      p.on("error", () => resolve());
+    });
+  });
+
+program
   .command("config-init")
   .description("Print the default config location")
   .action(() => {
@@ -189,6 +214,7 @@ judge
       notified_at: null,
       seen_at: null,
       replied_at: null,
+      hidden_at: null,
     });
     console.log(JSON.stringify(result, null, 2));
   });

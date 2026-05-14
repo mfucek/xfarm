@@ -9,7 +9,7 @@ export function renderFooter(ctx: RenderCtx): string {
   if (ctx.detailRow) {
     return (
       DIM +
-      "↑/↓ select · ←/→ prev/next · Enter run · esc/q back" +
+      "↑/↓ select · ←/→ prev/next · Enter run · x hide · esc/q back" +
       RESET
     );
   }
@@ -26,7 +26,7 @@ export function renderFooter(ctx: RenderCtx): string {
   if (ctx.page === "candidates") {
     return (
       DIM +
-      "j/k move · enter/space view · o open · s seen · r replied · C clear stale · Tab/←→ switch · q quit" +
+      "j/k move · enter/space view · x hide · C clear stale · Tab/←→ switch · q quit" +
       RESET
     );
   }

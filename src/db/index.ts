@@ -126,6 +126,9 @@ export class DB {
   markReplied(id: string): void {
     tweets.markReplied(this.db, id);
   }
+  markHidden(id: string): void {
+    tweets.markHidden(this.db, id);
+  }
   fetchTrackingSet(maxAgeHours: number): string[] {
     return tweets.fetchTrackingSet(this.db, maxAgeHours);
   }
@@ -135,11 +138,11 @@ export class DB {
   fetchDueForNotify(threshold: number, limit = 5): TweetRow[] {
     return tweets.fetchDueForNotify(this.db, threshold, limit);
   }
-  fetchActive(limit = 50): TweetRow[] {
-    return tweets.fetchActive(this.db, limit);
+  fetchActive(maxAgeHours: number, limit = 50): TweetRow[] {
+    return tweets.fetchActive(this.db, maxAgeHours, limit);
   }
-  fetchNonCandidates(limit = 50): TweetRow[] {
-    return tweets.fetchNonCandidates(this.db, limit);
+  fetchNonCandidates(maxAgeHours: number, limit = 50): TweetRow[] {
+    return tweets.fetchNonCandidates(this.db, maxAgeHours, limit);
   }
   oldestStaleTrackedTweet(
     intervalSec: number,

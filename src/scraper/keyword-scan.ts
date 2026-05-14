@@ -43,7 +43,7 @@ export async function scanKeyword(
           // velocity tracker's polling window — they'd never reach passesGate
           // otherwise. Apply the gate at discovery so they still get judged.
           const ageMin = (Date.now() - new Date(t.createdAt).getTime()) / 60000;
-          if (passesGate(cfg, ageMin, null, t.likes)) {
+          if (passesGate(cfg, ageMin, null, t.likes, t.replies)) {
             db.markGatePassed(t.id);
           }
         }

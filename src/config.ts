@@ -50,10 +50,21 @@ const VelocitySchema = z.object({
   max_age_hours: z.number().int().positive().default(2),
 });
 
+const CandidatesSchema = z.object({
+  // Tweets older than this are hidden from the candidates view. Scraped rows
+  // stay in the DB (so historical scores survive), they just stop surfacing.
+  max_age_hours: z.number().int().positive().default(48),
+});
+
 const GateSchema = z.object({
   min_velocity: z.number().nonnegative().default(3.0),
   velocity_window_min: z.number().int().positive().default(30),
   min_likes_absolute: z.number().int().nonnegative().default(50),
+  // Reply count must fall inside [min_replies, max_replies] to pass the gate.
+  // Below the floor the thread is dead; above the ceiling it's saturated and a
+  // new reply gets buried.
+  min_replies: z.number().int().nonnegative().default(3),
+  max_replies: z.number().int().nonnegative().default(20),
 });
 
 const ScheduleSchema = z.object({
@@ -76,15 +87,24 @@ const ScheduleSchema = z.object({
 const ProviderSchema = z.enum(["gemini", "codex"]).default("gemini");
 
 // Optional naumu MCP consultation. When enabled and provider supports
-// function calling (Gemini), the judge can call `ask_naumu` to query the
-// naumu graph before producing its final JSON. Streamable HTTP transport
-// only. Credentials live in this block so they're editable from the TUI;
-// NAUMU_API_KEY / NAUMU_GRAPH_ID env vars override the YAML values.
+// function calling (Gemini), the judge spawns the @naumu/mcp subprocess and
+// can call `naumu_ask_naumu` (Naumu Identity Q&A — synchronous, 5 calls/hour)
+// while producing pitch_bullets. Credentials live in this block so they're
+// editable from the TUI; matching NAUMU_* env vars override the YAML values.
 const NaumuMcpSchema = z.object({
   enabled: z.boolean().default(false),
-  server_url: z.string().default(""),
-  graph_id: z.string().default(""),
+  // Subprocess invocation. Default is `npx -y @naumu/mcp` so first run pulls
+  // the latest package; for stability you can pin a local install and point
+  // command at the resolved bin (e.g. `node ./node_modules/.bin/naumu-mcp`).
+  command: z.string().default("npx"),
+  args: z.array(z.string()).default(["-y", "@naumu/mcp"]),
   api_key: z.string().default(""),
+  // Override the naumu backend URL the subprocess hits. Blank = naumu.ai.
+  api_url: z.string().default(""),
+  // Required for naumu_ask_naumu when api_key is a user key. Bot keys
+  // (nmu_bot_*) resolve their identity from the manifest automatically.
+  identity_id: z.string().default(""),
+  graph_id: z.string().default(""),
   max_tool_calls: z.number().int().min(0).max(10).default(3),
 });
 
@@ -108,9 +128,12 @@ const JudgeSchema = z.object({
   prompt_path: PathStr,
   naumu: NaumuMcpSchema.default({
     enabled: false,
-    server_url: "",
-    graph_id: "",
+    command: "npx",
+    args: ["-y", "@naumu/mcp"],
     api_key: "",
+    api_url: "",
+    identity_id: "",
+    graph_id: "",
     max_tool_calls: 3,
   }),
 });
@@ -142,10 +165,13 @@ const ConfigSchema = z.object({
   watchlist: WatchlistSchema.default({ scan_interval_sec: 60, authors: [] }),
   keywords: KeywordsSchema.default({ scan_interval_sec: 300, queries: [] }),
   velocity: VelocitySchema.default({ tracker_interval_sec: 180, max_age_hours: 2 }),
+  candidates: CandidatesSchema.default({ max_age_hours: 48 }),
   gate: GateSchema.default({
     min_velocity: 3.0,
     velocity_window_min: 30,
     min_likes_absolute: 50,
+    min_replies: 3,
+    max_replies: 20,
   }),
   schedule: ScheduleSchema.default({
     active_hours_start: 0,
@@ -192,6 +218,14 @@ function applyEnvOverrides(cfg: Config): Config {
   const naumuKeyEnv = process.env.NAUMU_API_KEY;
   if (naumuKeyEnv && naumuKeyEnv.trim().length > 0) {
     cfg.judge.naumu.api_key = naumuKeyEnv.trim();
+  }
+  const naumuUrlEnv = process.env.NAUMU_API_URL;
+  if (naumuUrlEnv && naumuUrlEnv.trim().length > 0) {
+    cfg.judge.naumu.api_url = naumuUrlEnv.trim();
+  }
+  const naumuIdEnv = process.env.NAUMU_IDENTITY_ID;
+  if (naumuIdEnv && naumuIdEnv.trim().length > 0) {
+    cfg.judge.naumu.identity_id = naumuIdEnv.trim();
   }
   return cfg;
 }

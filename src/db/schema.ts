@@ -23,6 +23,7 @@ CREATE TABLE IF NOT EXISTS tweets (
     notified_at           TEXT,
     seen_at               TEXT,
     replied_at            TEXT,
+    hidden_at             TEXT,
     suggestion_chunk_id   INTEGER
 );
 CREATE INDEX IF NOT EXISTS idx_tweets_active
@@ -84,6 +85,10 @@ const MIGRATIONS: { name: string; sql: string }[] = [
   {
     name: "tweets.llm_pitch",
     sql: "ALTER TABLE tweets ADD COLUMN llm_pitch TEXT",
+  },
+  {
+    name: "tweets.hidden_at",
+    sql: "ALTER TABLE tweets ADD COLUMN hidden_at TEXT",
   },
 ];
 

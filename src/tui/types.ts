@@ -73,7 +73,18 @@ export interface RenderCtx {
    * bullets section renders a "✓ copied" notice while this is recent; null
    * means show the default "Enter to copy" hint instead. */
   tweetDetailCopiedAt: number | null;
+  /** When non-null, the action item with this label renders inline as
+   * "judging… <spinner>" instead of its normal text. The action that sets
+   * this should also kick a fast redraw timer so the spinner animates. */
+  tweetDetailBusyAction: string | null;
   setupStatus: SetupStatus | null;
+  /** Set when `git fetch` reveals upstream commits we don't have yet. The
+   * header renders a "new version available" banner while this is non-null. */
+  updateAvailable: { behind: number } | null;
+  /** True when the user has navigated up past the top of the page onto the
+   * "new version available" banner. Enter triggers the pull; Down returns
+   * focus to the page. Only meaningful while updateAvailable is non-null. */
+  bannerSelected: boolean;
 }
 
 // What handler modules need from the TUI orchestrator. The TUI class

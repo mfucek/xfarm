@@ -29,10 +29,20 @@ velocity:
   tracker_interval_sec: 180
   max_age_hours: 2
 
+# Candidates view (TUI). Tweets older than max_age_hours stop appearing in
+# the candidates/scrape-results list. Rows stay in the DB so historical
+# judge scores survive — tune this without losing data.
+candidates:
+  max_age_hours: 48
+
 gate:
   min_velocity: 3.0
   velocity_window_min: 30
   min_likes_absolute: 50
+  # Replies must fall inside [min_replies, max_replies] to pass the gate.
+  # Below the floor the thread is dead; above the ceiling a new reply gets buried.
+  min_replies: 3
+  max_replies: 20
 
 # Unified scheduling. One scrape at a time, paced by base_interval ± jitter.
 # Every long_break_after scrapes, the scheduler pauses for long_break_sec to
@@ -73,18 +83,23 @@ judge:
   notify_threshold: 7.0
   prompt_path: ./prompts/judge.md
 
-  # Optional agentic harness: when enabled, the judge can ask the live naumu
-  # knowledge graph directed questions via MCP before producing its angle and
-  # pitch_bullets. Only effective with provider=gemini; under provider=codex
-  # the judge silently falls back to single-shot.
-  # All fields are editable from the TUI's Config tab. NAUMU_API_KEY and
-  # NAUMU_GRAPH_ID env vars (if set) override the values below.
+  # Optional agentic harness: when enabled, the judge spawns the @naumu/mcp
+  # subprocess and calls naumu_ask_naumu against it before producing its angle
+  # and pitch_bullets. Only effective with provider=gemini; under
+  # provider=codex the judge silently falls back to single-shot.
+  # All fields are editable from the TUI's Config tab. The matching NAUMU_*
+  # env vars (NAUMU_API_KEY, NAUMU_GRAPH_ID, NAUMU_IDENTITY_ID, NAUMU_API_URL)
+  # override these values when set.
   naumu:
     enabled: false
-    server_url: ""        # Streamable HTTP endpoint of the naumu MCP server
-    graph_id: ""          # naumu graph UUID to consult
-    api_key: ""           # bearer token for the MCP endpoint
-    max_tool_calls: 3     # hard cap per judge run
+    # Subprocess that speaks the MCP protocol over stdio.
+    command: "npx"
+    args: ["-y", "@naumu/mcp"]
+    api_key: ""             # NAUMU_API_KEY (bot or user key)
+    api_url: ""             # NAUMU_API_URL — blank = https://naumu.ai
+    identity_id: ""         # NAUMU_IDENTITY_ID — required for user keys
+    graph_id: ""            # naumu graph UUID to consult
+    max_tool_calls: 3       # hard cap per judge run
 
 notifier:
   enabled: true
