@@ -140,15 +140,66 @@ export function renderCandidates(cols: number, ctx: RenderCtx): string {
     }
   };
 
-  // Row-level windowing centered on the selection. Candidate rows can be 2
-  // lines tall when an llm_angle is set, so halve the budget vs. other pages
-  // to keep the worst case from overflowing past the terminal height.
+  // Variable-height windowing centered on the selection. Each row is 1 line
+  // or 2 lines (when llm_angle is set), so we sum actual heights instead of
+  // picking a fixed item count — otherwise the total list height jitters as
+  // the user scrolls past 2-line rows and the budget either overflows the
+  // terminal or leaves dead space at the bottom.
   const rows = stdout.rows || 24;
-  const dataRows = Math.max(3, Math.floor((rows - 10) / 2));
+  // Chrome above body: header + blank line. Banner adds 4 (3 border lines +
+  // blank). Below body: footer + 1 line of safety so a transient flash or
+  // input bar doesn't push items off-screen.
+  const chromeAbove = ctx.updateAvailable ? 6 : 2;
+  const chromeBelow = 2;
+  // In-body chrome: column header at top + summary line at bottom (when
+  // windowed). We always reserve the summary slot; if the window fits all
+  // items we just leave the row unused.
+  const bodyChrome = 2;
+  const itemAvail = Math.max(2, rows - chromeAbove - chromeBelow - bodyChrome);
+
   const sel = Math.max(0, Math.min(ctx.selected, total - 1));
-  let start = Math.max(0, sel - Math.floor(dataRows / 2));
-  let end = Math.min(total, start + dataRows);
-  start = Math.max(0, end - dataRows);
+  const itemAt = (i: number): TweetRow =>
+    i < candCount ? ctx.candidates[i]! : ctx.nonCandidates[i - candCount]!;
+  const rowH = (i: number): number => (itemAt(i).llm_angle ? 2 : 1);
+  // Effective height of a [s, e) window includes the 3-line divider when the
+  // window straddles the candidate / non-candidate boundary, matching what
+  // the loop below actually emits.
+  const effectiveHeight = (s: number, e: number): number => {
+    let h = 0;
+    for (let i = s; i < e; i++) {
+      if (i === candCount && i > s) h += 3;
+      h += rowH(i);
+    }
+    return h;
+  };
+
+  let start = sel;
+  let end = sel + 1;
+  // Grow outward from the selection, alternating sides to keep it centered.
+  // If one side hits the boundary we keep growing on the other.
+  while (true) {
+    const canUp = start > 0;
+    const canDown = end < total;
+    if (!canUp && !canDown) break;
+    const distUp = sel - start;
+    const distDown = end - 1 - sel;
+    const preferUp = canUp && (!canDown || distUp <= distDown);
+    let advanced = false;
+    if (preferUp && effectiveHeight(start - 1, end) <= itemAvail) {
+      start--;
+      advanced = true;
+    } else if (!preferUp && canDown && effectiveHeight(start, end + 1) <= itemAvail) {
+      end++;
+      advanced = true;
+    } else if (preferUp && canDown && effectiveHeight(start, end + 1) <= itemAvail) {
+      end++;
+      advanced = true;
+    } else if (!preferUp && canUp && effectiveHeight(start - 1, end) <= itemAvail) {
+      start--;
+      advanced = true;
+    }
+    if (!advanced) break;
+  }
 
   for (let i = start; i < end; i++) {
     // Insert the section divider when we cross from candidates into
