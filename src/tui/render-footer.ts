@@ -44,6 +44,13 @@ export function renderFooter(ctx: RenderCtx): string {
       RESET
     );
   }
+  if (ctx.page === "about") {
+    return (
+      DIM +
+      "↑/↓ scroll · PgUp/PgDn page · Tab/←→ switch · q quit" +
+      RESET
+    );
+  }
   return (
     DIM +
     "↑/↓ select · Enter run · R reload · S stop · B boot · Tab/←→ switch · q quit" +

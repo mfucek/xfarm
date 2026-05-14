@@ -52,12 +52,14 @@ import { getDebugItems, handleDebugKey } from "./tui/keys-debug.ts";
 import { handleConfigKey } from "./tui/keys-config.ts";
 import { renderConfig } from "./tui/render-config.ts";
 import { handleTweetDetailKey } from "./tui/keys-tweet-detail.ts";
+import { handleAboutKey } from "./tui/keys-about.ts";
+import { renderAbout } from "./tui/render-about.ts";
 import { isChar, parseKey, type ParsedKey } from "./tui/keys.ts";
 import { handleBannerKey, renderBanner } from "./tui/banner.ts";
 
 const ACTIVITY_WINDOW_SEC = 3600;
 const ACTIVITY_BUCKETS = 60;
-const PAGES: Page[] = ["candidates", "keywords", "config", "debug"];
+const PAGES: Page[] = ["candidates", "keywords", "config", "debug", "about"];
 
 export class TUI implements TuiHost {
   page: Page = "candidates";
@@ -93,6 +95,7 @@ export class TUI implements TuiHost {
   // as one linear list. Sections are read-only; actions execute on Enter.
   debugCursor = 0;
   configCursor = 1; // start past the first header so j/k feels right
+  aboutScroll = 0;
   tweetDetailCursor = 0;
   tweetDetailCopiedAt: number | null = null;
   tweetDetailBusyAction: string | null = null;
@@ -353,7 +356,7 @@ export class TUI implements TuiHost {
       this.draw();
       return;
     }
-    if (isChar("1", "2", "3", "4")(key)) {
+    if (isChar("1", "2", "3", "4", "5")(key)) {
       const target =
         key.kind === "char" ? PAGES[Number(key.char) - 1] : undefined;
       if (target) {
@@ -372,6 +375,7 @@ export class TUI implements TuiHost {
     if (this.page === "candidates") handleCandidatesKey(this, key);
     else if (this.page === "keywords") handleKeywordsKey(this, key);
     else if (this.page === "config") handleConfigKey(this, key);
+    else if (this.page === "about") handleAboutKey(this, key);
     else handleDebugKey(this, key);
   }
 
@@ -454,6 +458,8 @@ export class TUI implements TuiHost {
       out.push(renderKeywords(cols, bodyRows, this));
     } else if (this.page === "config") {
       out.push(renderConfig(cols, bodyRows, this));
+    } else if (this.page === "about") {
+      out.push(renderAbout(cols, bodyRows, this));
     } else {
       out.push(renderDebug(cols, bodyRows, this, getDebugItems(this)));
     }

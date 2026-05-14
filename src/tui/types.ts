@@ -6,7 +6,7 @@ import type { SuggestionRow, TweetRow } from "../types.ts";
 // Re-export so handler modules don't need to know about ../types.ts internals.
 export type { TweetRow };
 
-export type Page = "candidates" | "keywords" | "config" | "debug";
+export type Page = "candidates" | "keywords" | "config" | "debug" | "about";
 
 // A row on the keywords page. "add" rows are pending suggestions to create a
 // new keyword; "keyword" rows are real keyword entries that may have a pending
@@ -82,6 +82,8 @@ export interface RenderCtx {
   busy: boolean;
   debugCursor: number;
   configCursor: number;
+  /** Free-scroll offset for the About page (release notes). */
+  aboutScroll: number;
   tweetDetailCursor: number;
   /** Timestamp of last successful copy from the tweet-detail bullets. The
    * bullets section renders a "✓ copied" notice while this is recent; null

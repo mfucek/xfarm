@@ -1,0 +1,120 @@
+{
+  "releases": [
+    {
+      "version": "0.7.0",
+      "date": "2026-05-14",
+      "title": "Long Break Visibility",
+      "description": "When the daemon takes a long break you can now see why and how long — no more wondering whether it's paused on purpose or stuck.",
+      "changes": [
+        { "text": "Long break countdown surfaces in Debug → scheduling with active/quiet/pausing states." },
+        { "text": "Long break duration now jitters so the daemon's downtime is less predictable." },
+        { "text": "Active hours edit as two separate fields in Config." }
+      ],
+      "otherChanges": [
+        { "text": "Activity chart drops to a baseline dot for empty minutes so quiet stretches stay readable." }
+      ]
+    },
+    {
+      "version": "0.6.1",
+      "date": "2026-05-14",
+      "title": "Easier-On-The-Eyes Keyword Marker",
+      "description": "The CHANGE marker in the Keywords list now reads as suggestion instead of warning.",
+      "changes": [
+        { "text": "Lighter sky-blue for CHANGE keyword suggestions so they don't fight with the rest of the row." }
+      ]
+    },
+    {
+      "version": "0.6.0",
+      "date": "2026-05-14",
+      "title": "Auto-Update Toggle",
+      "description": "xfarm can now keep itself current — flip auto-update on once and forget about it, or stick with the two-button banner.",
+      "changes": [
+        { "text": "Auto-update toggle: enable it from the banner and new versions install themselves." },
+        { "text": "Update banner gained a second button so the choice between updating now and arming auto-update is one keystroke either way." }
+      ],
+      "otherChanges": [
+        { "text": "Tweet detail page reworked: meta box on top, a horizontally-divided stats card under the post." },
+        { "text": "Truncated tweet text is now refilled from the permalink, plus an 'o' shortcut to open the tweet." }
+      ]
+    },
+    {
+      "version": "0.5.0",
+      "date": "2026-05-14",
+      "title": "Judge With Web Search",
+      "description": "The judge can now hit the web mid-verdict, and the TUI shows what it's doing while it thinks.",
+      "changes": [
+        { "text": "Judge gained web search and dedicated context/links fields so verdicts have grounding to point at." },
+        { "text": "Progress states render inline next to the spinner so a slow judge call no longer feels frozen." }
+      ]
+    },
+    {
+      "version": "0.3.5",
+      "date": "2026-05-14",
+      "title": "Drop The Pre-Push Hook",
+      "description": "The version-bump pre-push guard caused more friction than it caught — the agent now owns this responsibility outright.",
+      "changes": [
+        { "text": "Removed the pre-push version-bump git hook." },
+        { "text": "The agent is now solely responsible for bumping `package.json#version` before every push." }
+      ]
+    },
+    {
+      "version": "0.3.4",
+      "date": "2026-05-14",
+      "title": "Header Stays Pinned",
+      "description": "The header and tab strip no longer scroll out of view when the body gets tall.",
+      "changes": [
+        { "text": "Header pins across every page even at small terminal heights." },
+        { "text": "Dropped the # column from Candidates — it added clutter without much value." }
+      ]
+    },
+    {
+      "version": "0.3.3",
+      "date": "2026-05-14",
+      "title": "Steadier Candidate Order",
+      "description": "Viewing a candidate no longer reshuffles the list under you, and preflight is stricter so you find out about setup gaps sooner.",
+      "changes": [
+        { "text": "`seen_at` updates no longer re-sort the Candidates list — selection stays put while you read." },
+        { "text": "Preflight checks are stricter and report missing pieces with more detail." }
+      ]
+    },
+    {
+      "version": "0.3.2",
+      "date": "2026-05-14",
+      "title": "Sharper Keyword Suggester",
+      "description": "Keyword suggestions are reframed around your actual workspace profile, and the version-bump rule is now part of the project conventions.",
+      "changes": [
+        { "text": "Keyword suggester prompt rewritten to fit the AI-workspace-engineer profile." },
+        { "text": "CLAUDE.md captures the per-push version-bump rule so it doesn't get forgotten." }
+      ]
+    },
+    {
+      "version": "0.3.1",
+      "date": "2026-05-14",
+      "title": "Version Chip + Update Poll",
+      "description": "You can see which xfarm you're running at a glance, and the app checks for upstream commits every 30 seconds.",
+      "changes": [
+        { "text": "Header shows the current version next to the title." },
+        { "text": "Background `git fetch` runs every 30s; the update banner appears as soon as upstream is ahead." },
+        { "text": "Pre-push hook reminds you to bump the version (later removed in 0.3.5)." }
+      ]
+    },
+    {
+      "version": "0.3.0",
+      "date": "2026-05-14",
+      "title": "Update Banner & Bracketed Actions",
+      "description": "First proper release after the rebuild — adds the update banner, a candidates max-age knob, and a refreshed action style.",
+      "changes": [
+        { "text": "Update banner appears when upstream main is ahead of your local checkout." },
+        { "text": "Candidates respect a max-age so stale tweets fall off without manual hiding." },
+        { "text": "Replies gate: candidates with no reply ideas are filtered out before they reach you." },
+        { "text": "Action rows render with `[ brackets ]` so the affordance is unambiguous." }
+      ],
+      "otherChanges": [
+        { "text": "Candidates list windows by terminal height so long lists no longer push the header off-screen." },
+        { "text": "Dockable XFarm.app installer and icon ship in the repo." },
+        { "text": "Fixed space key being dropped while typing in the keyword prompt." },
+        { "text": "After `git pull`, xfarm auto-relaunches in the same terminal." }
+      ]
+    }
+  ]
+}
