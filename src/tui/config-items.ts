@@ -4,6 +4,7 @@ import {
   patchConfigFile,
   writeBurnerCookies,
 } from "../config.ts";
+import { describeWindow } from "../schedule.ts";
 import type { TuiHost } from "./types.ts";
 
 export type ConfigItem =
@@ -63,6 +64,20 @@ async function editBurnerField(
   const next = { ...current, [field]: v };
   writeBurnerCookies(next.username, next.auth_token, next.ct0);
   return `saved ${field}`;
+}
+
+/**
+ * Parse a user-entered hour. Tolerant: "9", "09", "9:30", "23:00" all
+ * resolve to the integer hour (minutes are stripped). Returns null if the
+ * input isn't an integer in [0, 23].
+ */
+function parseHour(s: string): number | null {
+  const trimmed = s.trim();
+  if (!trimmed) return null;
+  const head = trimmed.split(":")[0];
+  const n = Number(head);
+  if (!Number.isInteger(n) || n < 0 || n > 23) return null;
+  return n;
 }
 
 async function editConfigField(
@@ -218,6 +233,43 @@ export function getConfigItems(host: TuiHost): ConfigItem[] {
       patchConfigFile({ judge: { notify_threshold: num } });
       h.reloadConfig();
       return `threshold → ${num.toFixed(1)}`;
+    },
+  });
+
+  items.push({ kind: "header", id: "h-schedule", label: "Schedule" });
+  const fmtHour = (n: number) => `${String(n).padStart(2, "0")}:00`;
+  items.push({
+    kind: "field",
+    id: "active_hours_start",
+    label: "active start",
+    value: fmtHour(cfg.schedule.active_hours_start),
+    hint:
+      `Local-time hour scraping resumes (0–23). Current window: ${describeWindow(cfg)}. Set start == end for 24/7.`,
+    edit: async (h) => {
+      const v = await h.promptInput("Active start hour (0–23): ");
+      if (v == null) return null;
+      const n = parseHour(v);
+      if (n == null) return `invalid: '${v}' (must be 0–23)`;
+      patchConfigFile({ schedule: { active_hours_start: n } });
+      h.reloadConfig();
+      return `active start → ${fmtHour(n)} · restart daemon to apply`;
+    },
+  });
+  items.push({
+    kind: "field",
+    id: "active_hours_end",
+    label: "active end",
+    value: fmtHour(cfg.schedule.active_hours_end),
+    hint:
+      "Local-time hour scraping pauses (0–23). Overnight windows OK (e.g. start=22, end=6). Equal to start = 24/7.",
+    edit: async (h) => {
+      const v = await h.promptInput("Active end hour (0–23): ");
+      if (v == null) return null;
+      const n = parseHour(v);
+      if (n == null) return `invalid: '${v}' (must be 0–23)`;
+      patchConfigFile({ schedule: { active_hours_end: n } });
+      h.reloadConfig();
+      return `active end → ${fmtHour(n)} · restart daemon to apply`;
     },
   });
 
