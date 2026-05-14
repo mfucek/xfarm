@@ -1,4 +1,9 @@
+import {
+  readLastSeenVersion,
+  writeLastSeenVersion,
+} from "../lifecycle.ts";
 import { TUI } from "../tui.ts";
+import { getAppVersion } from "../version-check.ts";
 import { bootstrapTui, maybeStartDaemon, startVersionCheckPoll } from "./bootstrap.ts";
 
 export async function runTui(): Promise<void> {
@@ -11,6 +16,17 @@ export async function runTui(): Promise<void> {
     tui.page = "config";
     const missing = status.checks.filter((c) => !c.ok).map((c) => c.id).join(", ");
     tui.flash(`setup incomplete (${missing}) — finish here to start scraping`, 8000);
+  } else {
+    // First TUI launch under a new version (or no marker yet) → drop the user
+    // on the About tab so they see the release notes for what just changed.
+    // Gated on setup completeness so a brand-new install doesn't bury the
+    // setup checklist behind release notes.
+    const current = getAppVersion();
+    const lastSeen = readLastSeenVersion();
+    if (lastSeen !== current) {
+      tui.page = "about";
+      writeLastSeenVersion(current);
+    }
   }
 
   const versionPoll = startVersionCheckPoll((info) => {

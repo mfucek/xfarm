@@ -1,10 +1,23 @@
 import { spawn } from "node:child_process";
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 
 export type UpdateInfo = { behind: number };
 
 const repoRoot = resolve(import.meta.dir, "..");
+
+/** Read the app version from package.json. Falls back to "0.0.0" if missing
+ *  or unreadable — same fallback the header uses. */
+export function getAppVersion(): string {
+  try {
+    const pkg = JSON.parse(
+      readFileSync(join(repoRoot, "package.json"), "utf8"),
+    ) as { version?: string };
+    return pkg.version ?? "0.0.0";
+  } catch {
+    return "0.0.0";
+  }
+}
 
 const run = (
   cmd: string,

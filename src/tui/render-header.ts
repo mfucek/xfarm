@@ -1,5 +1,4 @@
-import { readFileSync } from "node:fs";
-import { resolve } from "node:path";
+import { getAppVersion } from "../version-check.ts";
 import {
   BOLD,
   DIM,
@@ -12,16 +11,7 @@ import {
 } from "./ansi.ts";
 import type { RenderCtx } from "./types.ts";
 
-const VERSION = ((): string => {
-  try {
-    const pkg = JSON.parse(
-      readFileSync(resolve(import.meta.dir, "../../package.json"), "utf8"),
-    ) as { version?: string };
-    return pkg.version ?? "0.0.0";
-  } catch {
-    return "0.0.0";
-  }
-})();
+const VERSION = getAppVersion();
 
 export function renderHeader(cols: number, ctx: RenderCtx): string {
   const tab = (label: string, active: boolean, badge?: string): string => {

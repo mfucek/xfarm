@@ -16,6 +16,29 @@ export const pidFilePath = (): string => join(XFARM_HOME, "daemon.pid");
 export const logFilePath = (): string => join(XFARM_HOME, "daemon.log");
 const sessionMarkerPath = (): string => join(XFARM_HOME, "tui-session.ppid");
 const longBreakFilePath = (): string => join(XFARM_HOME, "long-break.json");
+const lastVersionPath = (): string => join(XFARM_HOME, "last-version");
+
+/**
+ * Read the app version this user last saw the TUI render. `null` means no
+ * marker exists yet — treat as "first launch on this machine" so the caller
+ * can show release notes once. Trims whitespace so a trailing newline written
+ * by hand still parses.
+ */
+export function readLastSeenVersion(): string | null {
+  const p = lastVersionPath();
+  if (!existsSync(p)) return null;
+  try {
+    const v = readFileSync(p, "utf-8").trim();
+    return v.length > 0 ? v : null;
+  } catch {
+    return null;
+  }
+}
+
+export function writeLastSeenVersion(version: string): void {
+  mkdirSync(XFARM_HOME, { recursive: true });
+  writeFileSync(lastVersionPath(), version);
+}
 
 /**
  * The scheduler writes the long-break end-timestamp here while paused so the
