@@ -55,6 +55,14 @@ const fmtAge = (ms: number): string => {
   return `${Math.floor(sec / 86400)}d`;
 };
 
+const fmtRemaining = (ms: number): string => {
+  const sec = Math.max(0, Math.ceil(ms / 1000));
+  if (sec < 60) return `${sec}s`;
+  const m = Math.floor(sec / 60);
+  const s = sec % 60;
+  return s > 0 ? `${m}m ${s}s` : `${m}m`;
+};
+
 function renderSection(
   id: DebugSection["id"],
   cols: number,
@@ -99,8 +107,23 @@ function renderSection(
     const window = describeWindow(ctx.cfg);
     const labeled = (k: string, v: string) =>
       `  ${DIM}${padRight(k, 14)}${RESET} ${v}`;
-    lines.push(labeled("active hours", window));
-    if (sched.active) {
+    const hoursDot = sched.active
+      ? `${FG_GREEN}●${RESET}`
+      : `${FG_YELLOW}○${RESET}`;
+    lines.push(labeled("active hours", `${hoursDot} ${window}`));
+    const breakRemainingMs =
+      ctx.debug.longBreakUntilMs != null
+        ? ctx.debug.longBreakUntilMs - Date.now()
+        : 0;
+    const pausing = sched.active && breakRemainingMs > 0;
+    if (pausing) {
+      lines.push(
+        labeled(
+          "state",
+          `${FG_RED}■${RESET} pausing for ${fmtRemaining(breakRemainingMs)}`,
+        ),
+      );
+    } else if (sched.active) {
       lines.push(labeled("state", `${FG_GREEN}● active${RESET}`));
     } else {
       const msUntil = sched.sleepMs;

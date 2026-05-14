@@ -24,6 +24,8 @@ export type DebugSnapshot = {
   stats: ReturnType<DB["stats"]> | null;
   logTail: string[];
   daemonStartedAt: number | null;
+  /** Epoch-ms when the current long break ends, or null if not pausing. */
+  longBreakUntilMs: number | null;
 };
 
 export type ActivitySnapshot = ReturnType<DB["recentActivity"]>;

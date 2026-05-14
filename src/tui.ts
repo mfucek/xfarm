@@ -2,7 +2,7 @@ import { stdin, stdout } from "node:process";
 import type { Config } from "./config.ts";
 import { loadConfigLoose } from "./config.ts";
 import { DB } from "./db.ts";
-import { isDaemonRunning, readPid } from "./lifecycle.ts";
+import { isDaemonRunning, readLongBreakUntil, readPid } from "./lifecycle.ts";
 import { checkSetup, type SetupStatus } from "./setup-check.ts";
 import type { TweetRow } from "./types.ts";
 import {
@@ -66,7 +66,12 @@ export class TUI implements TuiHost {
   keywordItems: KeywordItem[] = [];
   pendingSuggestionCount = 0;
   unchunkedCount = 0;
-  debug: DebugSnapshot = { stats: null, logTail: [], daemonStartedAt: null };
+  debug: DebugSnapshot = {
+    stats: null,
+    logTail: [],
+    daemonStartedAt: null,
+    longBreakUntilMs: null,
+  };
   activity: ActivitySnapshot = {
     scraped: [],
     surfaced: [],
@@ -258,6 +263,8 @@ export class TUI implements TuiHost {
       this.debug.daemonStartedAt = debugDaemonStartedAt(
         this.daemonStatus === "running",
       );
+      this.debug.longBreakUntilMs =
+        this.daemonStatus === "running" ? readLongBreakUntil() : null;
     } else if (this.page === "config") {
       this.setupStatus = checkSetup(this.cfg);
     }

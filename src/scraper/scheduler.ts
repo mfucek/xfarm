@@ -1,5 +1,6 @@
 import type { Config } from "../config.ts";
 import type { DB } from "../db.ts";
+import { clearLongBreak, writeLongBreakUntil } from "../lifecycle.ts";
 import { scheduleState } from "../schedule.ts";
 import { scanAuthor } from "./account-scan.ts";
 import type { Browser } from "./browser.ts";
@@ -107,6 +108,8 @@ export async function runScheduler(
   db.syncFeeds([{ name: "home", interval_sec: cfg.schedule.home_interval_sec }]);
 
   let counter = 0;
+  // Wipe any stale long-break marker from a prior daemon run (e.g. SIGKILL).
+  clearLongBreak();
   console.log(
     `[scheduler] starting — ~${(60 / cfg.schedule.base_interval_sec).toFixed(1)} scrapes/min, ` +
       `long break every ${cfg.schedule.long_break_after}× scrapes`,
@@ -151,7 +154,12 @@ export async function runScheduler(
       console.log(
         `[scheduler] long break: ${(breakMs / 1000).toFixed(0)}s after ${counter} scrapes`,
       );
-      await sleep(breakMs);
+      writeLongBreakUntil(Date.now() + breakMs);
+      try {
+        await sleep(breakMs);
+      } finally {
+        clearLongBreak();
+      }
       continue;
     }
 

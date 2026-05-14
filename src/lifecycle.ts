@@ -15,6 +15,39 @@ const XFARM_HOME = join(homedir(), ".xfarm");
 export const pidFilePath = (): string => join(XFARM_HOME, "daemon.pid");
 export const logFilePath = (): string => join(XFARM_HOME, "daemon.log");
 const sessionMarkerPath = (): string => join(XFARM_HOME, "tui-session.ppid");
+const longBreakFilePath = (): string => join(XFARM_HOME, "long-break.json");
+
+/**
+ * The scheduler writes the long-break end-timestamp here while paused so the
+ * TUI (a separate process) can surface it on the debug page. File is cleared
+ * when the break ends or when the daemon shuts down; readers should still
+ * treat an `until_ms` in the past as "not pausing" in case cleanup was
+ * skipped (e.g. SIGKILL).
+ */
+export function writeLongBreakUntil(untilMs: number): void {
+  mkdirSync(XFARM_HOME, { recursive: true });
+  writeFileSync(longBreakFilePath(), JSON.stringify({ until_ms: untilMs }));
+}
+
+export function clearLongBreak(): void {
+  try {
+    unlinkSync(longBreakFilePath());
+  } catch {
+    /* already gone */
+  }
+}
+
+export function readLongBreakUntil(): number | null {
+  const p = longBreakFilePath();
+  if (!existsSync(p)) return null;
+  try {
+    const parsed = JSON.parse(readFileSync(p, "utf-8")) as { until_ms?: unknown };
+    const n = Number(parsed.until_ms);
+    return Number.isFinite(n) && n > Date.now() ? n : null;
+  } catch {
+    return null;
+  }
+}
 
 /**
  * True if this is the first TUI launch under the current parent (i.e. not a

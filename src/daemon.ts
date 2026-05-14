@@ -2,7 +2,13 @@ import { loadConfig } from "./config.ts";
 import { DB } from "./db.ts";
 import { Judge, judgeLoop } from "./judge.ts";
 import { isNaumuEnabled, NaumuMcpClient } from "./judge/naumu-mcp.ts";
-import { clearPid, isDaemonRunning, readPid, writePid } from "./lifecycle.ts";
+import {
+  clearLongBreak,
+  clearPid,
+  isDaemonRunning,
+  readPid,
+  writePid,
+} from "./lifecycle.ts";
 import { notifyLoop } from "./notifier.ts";
 import { Browser } from "./scraper/browser.ts";
 import { TokenBucket } from "./scraper/rate-limit.ts";
@@ -61,6 +67,7 @@ export async function runDaemon(): Promise<void> {
       /* db may already be closed */
     }
     clearPid();
+    clearLongBreak();
     process.exit(0);
   };
   process.on("SIGINT", () => void shutdown("SIGINT"));
