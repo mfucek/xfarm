@@ -44,8 +44,28 @@ const JUDGE_SCHEMA: JsonSchema = {
 
 const MAX_LINKS = 3;
 
+const REFINE_SCHEMA: JsonSchema = {
+  type: "object",
+  required: ["bullet"],
+  properties: {
+    bullet: { type: "string" },
+  },
+};
+
+export type RefineOpts = {
+  userPrompt: string;
+  currentAngle: string | null;
+  currentBullets: string[];
+  /** The specific bullet the user selected before pressing `p` — the
+   * "subject" of the refinement. The prompt highlights it so the model
+   * knows which existing idea the user is reacting to. */
+  subjectBullet: string;
+  onStatus?: StatusCallback;
+};
+
 export class Judge {
   private template: string | null = null;
+  private refineTemplate: string | null = null;
   private llm: LlmClient;
   private webSearch: WebSearchClient;
 
@@ -62,6 +82,16 @@ export class Judge {
       this.template = readFileSync(this.cfg.judge.prompt_path, "utf-8");
     }
     return this.template;
+  }
+
+  private getRefineTemplate(): string {
+    if (this.refineTemplate == null) {
+      this.refineTemplate = readFileSync(
+        this.cfg.judge.refine_prompt_path,
+        "utf-8",
+      );
+    }
+    return this.refineTemplate;
   }
 
   private render(t: TweetRow): string {
@@ -218,6 +248,88 @@ export class Judge {
         links: [],
       };
     }
+  }
+
+  /** Generate ONE additional reply-idea bullet for a tweet that already has
+   * a stored angle + bullets, steered by user-supplied feedback. Uses the
+   * same agentic path and tools (ask_naumu, web_search) as judgeOne — the
+   * only difference is the prompt template and the single-string output. */
+  async refineReplyIdea(t: TweetRow, opts: RefineOpts): Promise<string> {
+    const prompt = this.renderRefine(t, opts);
+    const logPrefix = `refine tweet=${t.id.slice(0, 12)} @${t.author}`;
+    logJudge(
+      "info",
+      `${logPrefix} start (user="${logTrunc(opts.userPrompt.replace(/\s+/g, " "), 80)}")`,
+    );
+    const startedAt = Date.now();
+    const wrappedStatus: StatusCallback = (s) => {
+      logJudge("info", `${logPrefix} status="${s}"`);
+      opts.onStatus?.(s);
+    };
+    wrappedStatus("Thinking…");
+    const supportsAgentic =
+      typeof this.llm.generateJsonAgentic === "function";
+    const naumuTool = supportsAgentic ? this.buildNaumuTool() : null;
+    const naumuReady = naumuTool != null && this.naumu?.ready === true;
+    const tools: Tool[] = [];
+    if (supportsAgentic) {
+      if (naumuReady && naumuTool) tools.push(naumuTool);
+      tools.push(this.buildWebSearchTool());
+    }
+    const useAgentic = supportsAgentic && tools.length > 0;
+    logJudge(
+      "info",
+      `${logPrefix} mode=${useAgentic ? "agentic" : "one-shot"} tools=[${tools.map((x) => x.name).join(",")}]`,
+    );
+    const maxIterations =
+      (naumuReady ? Math.min(this.cfg.judge.naumu.max_tool_calls, 2) : 0) + 2;
+    const data = useAgentic
+      ? await this.llm.generateJsonAgentic!<{ bullet: unknown }>(
+          prompt,
+          REFINE_SCHEMA,
+          tools,
+          { maxIterations, onStatus: wrappedStatus, logPrefix },
+        )
+      : await this.llm.generateJson<{ bullet: unknown }>(prompt, REFINE_SCHEMA);
+    const bullet =
+      typeof data.bullet === "string" ? data.bullet.trim() : "";
+    if (!bullet) {
+      logJudge(
+        "error",
+        `${logPrefix} empty_bullet in ${Date.now() - startedAt}ms`,
+      );
+      throw new Error("LLM returned empty bullet");
+    }
+    logJudge(
+      "info",
+      `${logPrefix} done in ${Date.now() - startedAt}ms bullet="${logTrunc(bullet, 120)}"`,
+    );
+    return bullet;
+  }
+
+  private renderRefine(t: TweetRow, opts: RefineOpts): string {
+    const angle = opts.currentAngle?.trim() || "(no stored angle)";
+    // Render the bullet list with a `*` marker next to the subject so the
+    // model can tell which one the user is reacting to without us having
+    // to inject extra prose.
+    const bullets =
+      opts.currentBullets.length > 0
+        ? opts.currentBullets
+            .map((b) => (b === opts.subjectBullet ? `* ${b}` : `- ${b}`))
+            .join("\n")
+        : "(none yet)";
+    const vars: Record<string, string> = {
+      author_handle: t.author,
+      text: t.text,
+      current_angle: angle,
+      current_bullets: bullets,
+      subject_bullet: opts.subjectBullet,
+      user_prompt: opts.userPrompt,
+    };
+    return this.getRefineTemplate().replace(
+      /\$(\w+)/g,
+      (m, k) => vars[k] ?? m,
+    );
   }
 }
 

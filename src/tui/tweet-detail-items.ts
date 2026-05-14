@@ -16,6 +16,7 @@ import {
   wrapText,
 } from "./ansi.ts";
 import { renderBox, renderDividedCard } from "./box.ts";
+import { renderSpinnerLabel } from "./spinner.ts";
 import type { TweetRow } from "../types.ts";
 import type { TuiHost } from "./types.ts";
 
@@ -31,6 +32,9 @@ export type TweetDetailItem =
       color?: string;
       copyHint?: string;
     }
+  // Placeholder bullet rendered while the `p` refine flow is in flight.
+  // Not selectable — j/k navigation skips it.
+  | { kind: "pendingBullet"; status: string | null; color?: string }
   | {
       kind: "action";
       label: string;
@@ -164,11 +168,20 @@ export function getTweetDetailItems(
           lines: wrapText(p, Math.max(10, width - 2)),
           raw: p,
           color: FG_GREEN,
-          copyHint: "Enter to copy",
+          copyHint: "Enter to copy · p to refine",
         });
       }
-    } else {
+    } else if (host.tweetDetailRefineStatus == null) {
+      // Suppress the "-" placeholder while a refine is in flight on an empty
+      // list — the spinner stands in for it.
       items.push({ kind: "text", lines: ["-"], color: FG_GREEN });
+    }
+    if (host.tweetDetailRefineStatus != null) {
+      items.push({
+        kind: "pendingBullet",
+        status: host.tweetDetailRefineStatus,
+        color: FG_GREEN,
+      });
     }
   }
 
@@ -218,12 +231,6 @@ function formatSource(source: string): string {
   return `via ${source}`;
 }
 
-// Standard braille spinner. 80ms per frame ≈ 12.5fps — readable, not seizure-y.
-const SPINNER_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
-function spinnerFrame(): string {
-  return SPINNER_FRAMES[Math.floor(Date.now() / 80) % SPINNER_FRAMES.length] ?? "⠋";
-}
-
 export function renderTweetDetailItem(
   it: TweetDetailItem,
   width: number,
@@ -271,6 +278,15 @@ export function renderTweetDetailItem(
     }
     return out;
   }
+  if (it.kind === "pendingBullet") {
+    const color = it.color ?? FG_GREEN;
+    const text = renderSpinnerLabel({
+      label: "refining",
+      status: it.status,
+      color,
+    });
+    return [`${prefix}${color}• ${RESET}${text}`];
+  }
   // action
   const marker = selected ? `${FG_CYAN}›${RESET}` : " ";
   const isBusy = opts.busyAction != null && opts.busyAction === it.label;
@@ -280,9 +296,11 @@ export function renderTweetDetailItem(
     // When the agentic loop reports a step ("Thinking…", "Browsing the
     // web…", "Asking Naumu…"), wedge it between "judging…" and the spinner
     // so the user can see what's actually happening.
-    const step = opts.judgeStatus?.trim();
-    const stepText = step ? ` ${DIM}${step}${RESET}` : "";
-    const text = `${FG_CYAN}judging…${stepText} ${FG_CYAN}${spinnerFrame()}${RESET}`;
+    const text = renderSpinnerLabel({
+      label: "judging",
+      status: opts.judgeStatus,
+      color: FG_CYAN,
+    });
     return [`${prefix}${marker} ${text}`];
   }
   const bracketed = `[ ${it.label} ]`;

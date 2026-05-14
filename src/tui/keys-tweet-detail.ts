@@ -18,6 +18,7 @@ import {
   openTweet,
   type TweetDetailItem,
 } from "./tweet-detail-items.ts";
+import { runRefineReplyIdea } from "./refine-reply.ts";
 import type { TuiHost } from "./types.ts";
 
 export function handleTweetDetailKey(host: TuiHost, key: ParsedKey): void {
@@ -63,6 +64,28 @@ export function handleTweetDetailKey(host: TuiHost, key: ParsedKey): void {
   const cols = stdout.columns || 100;
   const width = Math.max(20, Math.min(100, cols - 4));
   const items = getTweetDetailItems(host, r, width);
+
+  // p — refine the currently-hovered reply-idea bullet. Scoped to a bullet
+  // row on purpose: refinement is "about this specific idea" and the hint
+  // ("p to refine") only shows up under the selected bullet. No-op
+  // anywhere else on the detail page.
+  if (isChar("p")(key)) {
+    const item = items[host.tweetDetailCursor];
+    if (!item || item.kind !== "bullet") return;
+    if (host.tweetDetailRefineStatus != null) {
+      host.flash("already refining a reply…", 2500);
+      return;
+    }
+    const subjectBullet = item.raw;
+    void (async () => {
+      const v = await host.promptInput("Refine reply: ");
+      if (v == null) return;
+      // promptInput trims and returns null for empty input, so v is non-empty
+      // here. Don't await — runRefineReplyIdea drives its own redraws.
+      void runRefineReplyIdea(host, r, v, subjectBullet);
+    })();
+    return;
+  }
 
   if (isDown(key)) {
     host.tweetDetailCursor = stepSelectable(

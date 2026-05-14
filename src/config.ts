@@ -128,6 +128,10 @@ const JudgeSchema = z.object({
   codex_bin: z.string().default("codex"),
   notify_threshold: z.number().min(0).max(10).default(7.0),
   prompt_path: PathStr,
+  // Template used by the tweet-detail "p" key to generate one additional
+  // reply idea steered by the user's typed feedback. Reuses the same
+  // agentic loop and tools (ask_naumu, web_search) as the main judge.
+  refine_prompt_path: PathStr.default(expandPath("./prompts/refine-reply.md")),
   naumu: NaumuMcpSchema.default({
     enabled: false,
     command: "npx",

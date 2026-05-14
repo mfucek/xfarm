@@ -82,6 +82,10 @@ judge:
 
   notify_threshold: 7.0
   prompt_path: ./prompts/judge.md
+  # Template used by the tweet-detail "p" key to ask for one additional
+  # reply idea steered by the user's typed feedback. Same tools as the
+  # main judge prompt (ask_naumu + web_search) — only the wrapper differs.
+  refine_prompt_path: ./prompts/refine-reply.md
 
   # Optional agentic harness: when enabled, the judge spawns the @naumu/mcp
   # subprocess and calls naumu_ask_naumu against it before producing its angle
