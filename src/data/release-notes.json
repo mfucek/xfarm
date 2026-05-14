@@ -11,7 +11,8 @@
       ],
       "otherChanges": [
         { "text": "New About tab with release notes — this thing you're reading right now." },
-        { "text": "Config and Debug pages now share one section/group layout so jumping between them feels consistent." }
+        { "text": "Config and Debug pages now share one section/group layout so jumping between them feels consistent." },
+        { "text": "Fix: deleted keywords no longer reappear after a restart — config.yaml now only seeds the keywords table on first boot." }
       ]
     },
     {

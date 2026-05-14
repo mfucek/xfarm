@@ -1,7 +1,14 @@
 import type { Database } from "bun:sqlite";
 import { nowIso } from "./schema.ts";
 
+// Seed the keywords table from config.yaml on first boot only. Once the table
+// has any rows, the DB is the source of truth — re-running with a yaml entry
+// the user deleted in the TUI used to resurrect it on every restart.
 export function syncKeywords(db: Database, queries: string[]): void {
+  const row = db
+    .prepare("SELECT 1 FROM keywords LIMIT 1")
+    .get() as { 1: number } | undefined;
+  if (row) return;
   const stmt = db.prepare("INSERT OR IGNORE INTO keywords(query) VALUES (?)");
   const tx = db.transaction((qs: string[]) => {
     for (const q of qs) stmt.run(q);
